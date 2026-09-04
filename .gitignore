@@ -1,0 +1,40 @@
+# Binaries and build outputs
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Sensitive credentials & Environment variables
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.ssh/
+host_key*
+id_rsa*
+id_ed25519*
+
+# Database & local data volumes
+pgdata/
+data/
+*.sqlite
+*.db
+
+# Logs and runtime diagnostics
+*.log
+
+# IDE & Editor artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating System files
+.DS_Store
+Thumbs.db
