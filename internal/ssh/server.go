@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/charmbracelet/ssh"
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,6 +42,8 @@ func NewServer(cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger) (*ss
 	srv, err := wish.NewServer(
 		wish.WithAddress(cfg.Address()),
 		wish.WithHostKeyPath(cfg.HostKeyPath),
+		wish.WithIdleTimeout(15*time.Minute),
+		wish.WithMaxTimeout(2*time.Hour),
 		wish.WithPublicKeyAuth(func(_ ssh.Context, key ssh.PublicKey) bool {
 			// Accept all public keys — identity is derived from the key itself.
 			// The user record is looked up/created via the fingerprint at session start.
@@ -72,10 +75,13 @@ func ListenAndServe(ctx context.Context, srv *ssh.Server, logger *slog.Logger) e
 	case err := <-errCh:
 		return fmt.Errorf("SSH server error: %w", err)
 	case <-ctx.Done():
-		logger.Info("shutting down SSH server")
-		if err := srv.Shutdown(ctx); err != nil {
+		logger.Info("shutting down SSH server, draining active sessions")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("SSH server shutdown: %w", err)
 		}
 		return nil
 	}
 }
+

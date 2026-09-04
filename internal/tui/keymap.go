@@ -14,6 +14,7 @@ type KeyMap struct {
 	Downvote key.Binding
 	NewPost  key.Binding
 	Reply    key.Binding
+	Submit   key.Binding
 	Help     key.Binding
 }
 
@@ -42,7 +43,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab", "switch sort"),
+			key.WithHelp("tab", "switch sort/field"),
 		),
 		Upvote: key.NewBinding(
 			key.WithKeys("u"),
@@ -59,6 +60,10 @@ func DefaultKeyMap() KeyMap {
 		Reply: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "reply"),
+		),
+		Submit: key.NewBinding(
+			key.WithKeys("ctrl+s"),
+			key.WithHelp("ctrl+s", "submit"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),

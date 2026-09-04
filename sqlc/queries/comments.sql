@@ -1,5 +1,5 @@
 -- name: GetCommentThreadByPost :many
--- Recursive CTE that returns the full comment tree for a post,
+-- Recursive CTE that returns the comment tree for a post up to depth 15,
 -- ordered depth-first by (path, created_at).
 WITH RECURSIVE thread AS (
     -- Anchor: top-level comments (parent_id IS NULL)
@@ -21,7 +21,7 @@ WITH RECURSIVE thread AS (
 
     UNION ALL
 
-    -- Recursive: child comments
+    -- Recursive: child comments (strictly constrained to same post_id with depth ceiling)
     SELECT
         c.id,
         c.post_id,
@@ -37,11 +37,13 @@ WITH RECURSIVE thread AS (
     FROM comments c
     JOIN users u ON u.id = c.author_id
     JOIN thread t ON t.id = c.parent_id
+    WHERE c.post_id = $1 AND t.depth < 15
 )
 SELECT id, post_id, parent_id, author_id, body, score,
        created_at, updated_at, author_handle, depth, path
 FROM thread
-ORDER BY path, created_at ASC;
+ORDER BY path, created_at ASC
+LIMIT $2;
 
 -- name: CreateComment :one
 INSERT INTO comments (post_id, parent_id, author_id, body)

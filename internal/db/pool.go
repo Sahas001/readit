@@ -23,6 +23,14 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	config.MaxConnIdleTime = 30 * time.Minute
 	config.HealthCheckPeriod = 1 * time.Minute
 
+	// Defense-in-depth query & transaction timeouts
+	if config.ConnConfig.RuntimeParams == nil {
+		config.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	config.ConnConfig.RuntimeParams["statement_timeout"] = "3000"                    // 3 seconds
+	config.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "5000" // 5 seconds
+
+
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("creating connection pool: %w", err)
