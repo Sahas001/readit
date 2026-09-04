@@ -13,9 +13,10 @@ type KeyMap struct {
 	Upvote   key.Binding
 	Downvote key.Binding
 	NewPost  key.Binding
-	Reply    key.Binding
-	Submit   key.Binding
-	Help     key.Binding
+	Reply     key.Binding
+	ReplyRoot key.Binding
+	Submit    key.Binding
+	Help      key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -60,6 +61,10 @@ func DefaultKeyMap() KeyMap {
 		Reply: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "reply"),
+		),
+		ReplyRoot: key.NewBinding(
+			key.WithKeys("R"),
+			key.WithHelp("R", "reply to post"),
 		),
 		Submit: key.NewBinding(
 			key.WithKeys("ctrl+s"),

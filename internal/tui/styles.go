@@ -51,15 +51,31 @@ var (
 
 	styleStatusBar = lipgloss.NewStyle().
 			Foreground(colorMuted).
-			Background(lipgloss.Color("#2A2A3E")).
-			Padding(0, 1)
+			Background(colorCardBg)
+
+	styleStatusBadge = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(colorPrimary).
+				Bold(true).
+				Padding(0, 1)
+
+	styleStatusKey = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true)
+
+	styleStatusDesc = lipgloss.NewStyle().
+			Foreground(colorMuted)
+
+	styleStatusFlash = lipgloss.NewStyle().
+				Foreground(colorUpvote).
+				Bold(true)
 
 	stylePrompt = lipgloss.NewStyle().
 			Foreground(colorAccent).
 			Bold(true)
 
 	styleError = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
+			Foreground(lipgloss.Color("#FF4545")).
 			Bold(true)
 
 	// Post detail and comment styles
@@ -70,11 +86,21 @@ var (
 	styleBranch = lipgloss.NewStyle().
 			Foreground(colorMuted)
 
+	styleSelectedBranch = lipgloss.NewStyle().
+				Foreground(colorPrimary).
+				Bold(true)
+
 	styleAuthor = lipgloss.NewStyle().
 			Foreground(colorAccent).
 			Bold(true)
 
 	styleBadge = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(colorPrimary).
+			Padding(0, 1).
+			Bold(true)
+
+	styleOpBadge = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
 			Background(colorPrimary).
 			Padding(0, 1).
@@ -94,4 +120,10 @@ var (
 			Border(lipgloss.NormalBorder(), false, false, true, false).
 			BorderForeground(colorBorder).
 			PaddingBottom(1)
+
+	styleCharCount = lipgloss.NewStyle().
+			Foreground(colorMuted)
+
+	styleRule = lipgloss.NewStyle().
+			Foreground(colorBorder)
 )

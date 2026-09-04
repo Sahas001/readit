@@ -69,20 +69,25 @@ type Model struct {
 	postCursor   int
 
 	// Post detail & comments.
-	currentPost *db.GetPostByIDRow
-	comments    []db.GetCommentThreadByPostRow
-	viewport    viewport.Model
+	currentPost        *db.GetPostByIDRow
+	comments           []db.GetCommentThreadByPostRow
+	viewport           viewport.Model
+	commentCursor      int
+	commentLineOffsets []int
+
+	// Micro-interactions.
+	flashMsg string
 
 	// Content creation: New Post.
-	titleInput     textinput.Model
-	urlInput       textinput.Model
-	bodyInput      textarea.Model
-	postFormFocus  int // 0: Title, 1: URL, 2: Body
+	titleInput    textinput.Model
+	urlInput      textinput.Model
+	bodyInput     textarea.Model
+	postFormFocus int // 0: Title, 1: URL, 2: Body
 
 	// Content creation: New Comment.
-	commentInput       textarea.Model
-	replyParentID      *int64
-	replyParentAuthor  string
+	commentInput      textarea.Model
+	replyParentID     *int64
+	replyParentAuthor string
 }
 
 // --- Messages ----------------------------------------------------------
@@ -111,7 +116,14 @@ type postDetailLoadedMsg struct {
 
 // postVotedMsg signals that a vote has been counted and score recalculated.
 type postVotedMsg struct {
-	postID int64
+	postID    int64
+	direction int16
+}
+
+// commentVotedMsg signals that a comment vote has been counted.
+type commentVotedMsg struct {
+	commentID int64
+	direction int16
 }
 
 // postCreatedMsg signals that a post was published.
@@ -153,6 +165,8 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 	// New Post Body textarea
 	bodyA := textarea.New()
 	bodyA.Placeholder = "Write your post body here (supports markdown)..."
+	bodyA.ShowLineNumbers = false
+	bodyA.Prompt = ""
 	bodyA.SetWidth(65)
 	bodyA.SetHeight(8)
 	bodyA.CharLimit = 10000
@@ -160,6 +174,8 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 	// Comment textarea
 	commA := textarea.New()
 	commA.Placeholder = "Write your reply here..."
+	commA.ShowLineNumbers = false
+	commA.Prompt = ""
 	commA.SetWidth(65)
 	commA.SetHeight(6)
 	commA.CharLimit = 5000
@@ -179,7 +195,8 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 		urlInput:     urlIn,
 		bodyInput:    bodyA,
 		commentInput: commA,
-		viewport:     vp,
+		viewport:      vp,
+		commentCursor: -1,
 	}
 }
 
@@ -196,19 +213,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Terminal resize.
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.viewport.Width = max(20, msg.Width-4)
-		m.viewport.Height = max(5, msg.Height-6)
+		if msg.Width > 0 {
+			m.width = msg.Width
+		}
+		if msg.Height > 0 {
+			m.height = msg.Height
+		}
+		m.resizeInputs()
+		m.updateViewportSize()
 		if m.currentView == viewPostDetail && m.currentPost != nil {
 			m.viewport.SetContent(m.renderPostDetailContent())
 		}
 		return m, nil
 
-	// Global quit.
+	// Global quit & flash clearing.
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
+		}
+		if msg.String() != "u" && msg.String() != "d" {
+			m.flashMsg = ""
 		}
 
 	// Data messages.
@@ -220,18 +244,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boardCursor = 0
 		return m, nil
 	case postsLoadedMsg:
+		prevCursor := m.postCursor
 		m.posts = msg.posts
 		m.currentView = viewPostList
-		m.postCursor = 0
+		if prevCursor < len(m.posts) {
+			m.postCursor = prevCursor
+		} else if len(m.posts) > 0 {
+			m.postCursor = len(m.posts) - 1
+		} else {
+			m.postCursor = 0
+		}
 		return m, nil
 	case postDetailLoadedMsg:
+		samePost := (m.currentPost != nil && m.currentPost.ID == msg.post.ID)
+		prevCursor := m.commentCursor
+		prevYOffset := m.viewport.YOffset
+
 		m.currentPost = msg.post
 		m.comments = msg.comments
 		m.currentView = viewPostDetail
+
+		if samePost {
+			m.commentCursor = prevCursor
+			if m.commentCursor >= len(m.comments) {
+				m.commentCursor = len(m.comments) - 1
+			}
+		} else {
+			m.commentCursor = -1
+		}
+
+		m.updateViewportSize()
 		m.viewport.SetContent(m.renderPostDetailContent())
-		m.viewport.GotoTop()
+
+		if samePost {
+			m.viewport.SetYOffset(prevYOffset)
+		} else {
+			m.viewport.GotoTop()
+		}
 		return m, nil
 	case postVotedMsg:
+		if msg.direction > 0 {
+			m.flashMsg = "▲ Upvoted"
+		} else if msg.direction < 0 {
+			m.flashMsg = "▼ Downvoted"
+		} else {
+			m.flashMsg = "• Vote removed"
+		}
 		// Reload current view data to reflect updated scores
 		if m.currentView == viewPostDetail && m.currentPost != nil {
 			return m, m.loadPostDetailCmd(m.currentPost.ID)
@@ -239,12 +297,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadPostsCmd(m.currentBoard.ID)
 		}
 		return m, nil
+	case commentVotedMsg:
+		if msg.direction > 0 {
+			m.flashMsg = "▲ Upvoted"
+		} else if msg.direction < 0 {
+			m.flashMsg = "▼ Downvoted"
+		} else {
+			m.flashMsg = "• Vote removed"
+		}
+		if m.currentView == viewPostDetail && m.currentPost != nil {
+			return m, m.loadPostDetailCmd(m.currentPost.ID)
+		}
+		return m, nil
 	case postCreatedMsg:
 		// Return to post list and reload posts
+		m.flashMsg = "✓ Post published!"
 		m.currentView = viewPostList
 		return m, m.loadPostsCmd(msg.post.BoardID)
 	case commentCreatedMsg:
 		// Return to post detail and reload discussion
+		m.flashMsg = "✓ Reply posted!"
 		m.currentView = viewPostDetail
 		return m, m.loadPostDetailCmd(msg.comment.PostID)
 	case errMsg:
@@ -489,6 +561,70 @@ func (m *Model) loadPostDetailCmd(postID int64) tea.Cmd {
 	}
 }
 
+func (m *Model) updateViewportSize() {
+	headerHeight := 2
+	statusHeight := 1
+	availHeight := 20
+	if m.height > 0 {
+		availHeight = max(3, m.height-headerHeight-statusHeight)
+	}
+	m.viewport.Height = availHeight
+	if m.width > 0 {
+		m.viewport.Width = max(20, m.width)
+	}
+}
+
+func (m *Model) formDimensions() (cardWidth, contentWidth, inputWidth int) {
+	cardWidth = 72
+	if m.width > 0 {
+		cardWidth = min(76, max(36, m.width-8))
+		if m.width < 44 {
+			cardWidth = max(24, m.width-4)
+		}
+	}
+	// Card has Border(1 left + 1 right = 2) and Padding(1, 2 = 4 horizontal).
+	// Content width inside card is cardWidth - 6.
+	contentWidth = max(16, cardWidth-6)
+
+	// Input boxes have Border(1 left + 1 right = 2) and Padding(0, 1 = 2 horizontal).
+	// Inner input component width must be contentWidth - 4 so the box outer width equals contentWidth.
+	inputWidth = max(12, contentWidth-4)
+	return cardWidth, contentWidth, inputWidth
+}
+
+func (m *Model) resizeInputs() {
+	_, _, inputWidth := m.formDimensions()
+
+	m.titleInput.Width = inputWidth
+	m.urlInput.Width = inputWidth
+	m.bodyInput.SetWidth(inputWidth)
+	m.commentInput.SetWidth(inputWidth)
+
+	bodyHeight := 8
+	if m.height > 0 {
+		bodyHeight = min(12, max(4, m.height-18))
+	}
+	m.bodyInput.SetHeight(bodyHeight)
+
+	commHeight := 6
+	if m.height > 0 {
+		commHeight = min(10, max(4, m.height-16))
+	}
+	m.commentInput.SetHeight(commHeight)
+}
+
+func (m *Model) ensureCommentVisible(idx int) {
+	if idx < 0 || idx >= len(m.commentLineOffsets) {
+		return
+	}
+	targetLine := m.commentLineOffsets[idx]
+	if targetLine < m.viewport.YOffset {
+		m.viewport.SetYOffset(max(0, targetLine-1))
+	} else if targetLine >= m.viewport.YOffset+m.viewport.Height-2 {
+		m.viewport.SetYOffset(max(0, targetLine-m.viewport.Height+4))
+	}
+}
+
 func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -498,15 +634,75 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		case "q":
 			return m, tea.Quit
+		case "j", "down":
+			if len(m.comments) > 0 && m.commentCursor < len(m.comments)-1 {
+				m.commentCursor++
+				m.viewport.SetContent(m.renderPostDetailContent())
+				m.ensureCommentVisible(m.commentCursor)
+				return m, nil
+			}
+		case "k", "up":
+			if m.commentCursor > -1 {
+				m.commentCursor--
+				m.viewport.SetContent(m.renderPostDetailContent())
+				if m.commentCursor == -1 {
+					m.viewport.GotoTop()
+				} else {
+					m.ensureCommentVisible(m.commentCursor)
+				}
+				return m, nil
+			}
+		case "tab":
+			if len(m.comments) > 0 {
+				if m.commentCursor >= len(m.comments)-1 {
+					m.commentCursor = -1
+					m.viewport.SetContent(m.renderPostDetailContent())
+					m.viewport.GotoTop()
+				} else {
+					m.commentCursor++
+					m.viewport.SetContent(m.renderPostDetailContent())
+					m.ensureCommentVisible(m.commentCursor)
+				}
+				return m, nil
+			}
+		case "shift+tab":
+			if len(m.comments) > 0 {
+				if m.commentCursor <= -1 {
+					m.commentCursor = len(m.comments) - 1
+				} else {
+					m.commentCursor--
+				}
+				m.viewport.SetContent(m.renderPostDetailContent())
+				if m.commentCursor == -1 {
+					m.viewport.GotoTop()
+				} else {
+					m.ensureCommentVisible(m.commentCursor)
+				}
+				return m, nil
+			}
 		case "r":
+			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
+				comment := m.comments[m.commentCursor]
+				return m, m.openNewComment(&comment.ID, comment.AuthorHandle)
+			}
+			if m.currentPost != nil {
+				return m, m.openNewComment(nil, m.currentPost.AuthorHandle)
+			}
+		case "R":
 			if m.currentPost != nil {
 				return m, m.openNewComment(nil, m.currentPost.AuthorHandle)
 			}
 		case "u":
+			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
+				return m, m.castCommentVoteCmd(m.comments[m.commentCursor].ID, 1)
+			}
 			if m.currentPost != nil {
 				return m, m.castPostVoteCmd(m.currentPost.ID, 1)
 			}
 		case "d":
+			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
+				return m, m.castCommentVoteCmd(m.comments[m.commentCursor].ID, -1)
+			}
 			if m.currentPost != nil {
 				return m, m.castPostVoteCmd(m.currentPost.ID, -1)
 			}
@@ -528,13 +724,31 @@ func (m *Model) castPostVoteCmd(postID int64, direction int16) tea.Cmd {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
-		err := m.queries.UpsertPostVote(ctx, db.UpsertPostVoteParams{
-			UserID:    m.user.ID,
-			PostID:    postID,
-			Direction: direction,
+		existing, err := m.queries.GetPostVoteByUser(ctx, db.GetPostVoteByUserParams{
+			UserID: m.user.ID,
+			PostID: postID,
 		})
-		if err != nil {
-			return errMsg{err: fmt.Errorf("voting on post: %w", err)}
+
+		var newDirection int16
+		if err == nil && existing.Direction == direction {
+			// User pressed the same direction again -> toggle off (delete vote)
+			if err := m.queries.DeletePostVote(ctx, db.DeletePostVoteParams{
+				UserID: m.user.ID,
+				PostID: postID,
+			}); err != nil {
+				return errMsg{err: fmt.Errorf("deleting post vote: %w", err)}
+			}
+			newDirection = 0
+		} else {
+			// New vote or flipping from upvote to downvote (or vice versa)
+			if err := m.queries.UpsertPostVote(ctx, db.UpsertPostVoteParams{
+				UserID:    m.user.ID,
+				PostID:    postID,
+				Direction: direction,
+			}); err != nil {
+				return errMsg{err: fmt.Errorf("voting on post: %w", err)}
+			}
+			newDirection = direction
 		}
 
 		// Recalculate denormalized score
@@ -542,7 +756,50 @@ func (m *Model) castPostVoteCmd(postID int64, direction int16) tea.Cmd {
 			return errMsg{err: fmt.Errorf("recalculating score: %w", err)}
 		}
 
-		return postVotedMsg{postID: postID}
+		return postVotedMsg{postID: postID, direction: newDirection}
+	}
+}
+
+func (m *Model) castCommentVoteCmd(commentID int64, direction int16) tea.Cmd {
+	return func() tea.Msg {
+		if m.user == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
+		defer cancel()
+
+		existing, err := m.queries.GetCommentVoteByUser(ctx, db.GetCommentVoteByUserParams{
+			UserID:    m.user.ID,
+			CommentID: commentID,
+		})
+
+		var newDirection int16
+		if err == nil && existing.Direction == direction {
+			// User pressed the same direction again -> toggle off (delete vote)
+			if err := m.queries.DeleteCommentVote(ctx, db.DeleteCommentVoteParams{
+				UserID:    m.user.ID,
+				CommentID: commentID,
+			}); err != nil {
+				return errMsg{err: fmt.Errorf("deleting comment vote: %w", err)}
+			}
+			newDirection = 0
+		} else {
+			// New vote or flipping from upvote to downvote (or vice versa)
+			if err := m.queries.UpsertCommentVote(ctx, db.UpsertCommentVoteParams{
+				UserID:    m.user.ID,
+				CommentID: commentID,
+				Direction: direction,
+			}); err != nil {
+				return errMsg{err: fmt.Errorf("voting on comment: %w", err)}
+			}
+			newDirection = direction
+		}
+
+		if err := m.queries.RecalculateCommentScore(ctx, commentID); err != nil {
+			return errMsg{err: fmt.Errorf("recalculating comment score: %w", err)}
+		}
+
+		return commentVotedMsg{commentID: commentID, direction: newDirection}
 	}
 }
 
@@ -554,38 +811,56 @@ func (m *Model) openNewPost() tea.Cmd {
 	m.titleInput.Reset()
 	m.urlInput.Reset()
 	m.bodyInput.Reset()
-	m.titleInput.Focus()
-	m.urlInput.Blur()
-	m.bodyInput.Blur()
+	m.resizeInputs()
+	m.syncPostFormFocus()
 	m.err = nil
 	return textinput.Blink
+}
+
+func (m *Model) syncPostFormFocus() {
+	switch m.postFormFocus {
+	case 0:
+		m.titleInput.Focus()
+		m.urlInput.Blur()
+		m.bodyInput.Blur()
+	case 1:
+		m.titleInput.Blur()
+		m.urlInput.Focus()
+		m.bodyInput.Blur()
+	case 2:
+		m.titleInput.Blur()
+		m.urlInput.Blur()
+		m.bodyInput.Focus()
+	}
 }
 
 func (m *Model) updateNewPost(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc":
+		switch {
+		case msg.String() == "esc":
 			m.currentView = viewPostList
 			return m, nil
-		case "tab":
+		case msg.String() == "tab":
 			m.postFormFocus = (m.postFormFocus + 1) % 3
-			switch m.postFormFocus {
-			case 0:
-				m.titleInput.Focus()
-				m.urlInput.Blur()
-				m.bodyInput.Blur()
-			case 1:
-				m.titleInput.Blur()
-				m.urlInput.Focus()
-				m.bodyInput.Blur()
-			case 2:
-				m.titleInput.Blur()
-				m.urlInput.Blur()
-				m.bodyInput.Focus()
-			}
+			m.syncPostFormFocus()
 			return m, nil
-		case "ctrl+s":
+		case msg.String() == "shift+tab" || msg.Type == tea.KeyShiftTab:
+			m.postFormFocus = (m.postFormFocus - 1 + 3) % 3
+			m.syncPostFormFocus()
+			return m, nil
+		case msg.String() == "enter":
+			if m.postFormFocus == 0 {
+				m.postFormFocus = 1
+				m.syncPostFormFocus()
+				return m, nil
+			} else if m.postFormFocus == 1 {
+				m.postFormFocus = 2
+				m.syncPostFormFocus()
+				return m, nil
+			}
+			// When postFormFocus == 2 (body textarea), enter inserts a newline
+		case msg.String() == "ctrl+s":
 			title := strings.TrimSpace(m.titleInput.Value())
 			if title == "" {
 				m.err = fmt.Errorf("title cannot be empty")
@@ -638,6 +913,7 @@ func (m *Model) openNewComment(parentID *int64, parentAuthor string) tea.Cmd {
 	m.replyParentID = parentID
 	m.replyParentAuthor = parentAuthor
 	m.commentInput.Reset()
+	m.resizeInputs()
 	m.commentInput.Focus()
 	m.err = nil
 	return textarea.Blink

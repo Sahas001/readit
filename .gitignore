@@ -38,3 +38,8 @@ data/
 # Operating System files
 .DS_Store
 Thumbs.db
+
+# Documentation
+docs/
+
+
