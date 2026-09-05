@@ -4,15 +4,18 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines the key bindings for the application.
 type KeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Enter    key.Binding
-	Back     key.Binding
-	Quit     key.Binding
-	Tab      key.Binding
-	Upvote   key.Binding
-	Downvote key.Binding
-	NewPost  key.Binding
+	Up        key.Binding
+	Down      key.Binding
+	Top       key.Binding
+	Bottom    key.Binding
+	Enter     key.Binding
+	Back      key.Binding
+	Quit      key.Binding
+	Tab       key.Binding
+	ShiftTab  key.Binding
+	Upvote    key.Binding
+	Downvote  key.Binding
+	NewPost   key.Binding
 	Reply     key.Binding
 	ReplyRoot key.Binding
 	Submit    key.Binding
@@ -30,6 +33,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("j", "down"),
 			key.WithHelp("↓/j", "down"),
 		),
+		Top: key.NewBinding(
+			key.WithKeys("g", "home"),
+			key.WithHelp("g", "top"),
+		),
+		Bottom: key.NewBinding(
+			key.WithKeys("G", "end"),
+			key.WithHelp("G", "bottom"),
+		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "select"),
@@ -44,7 +55,11 @@ func DefaultKeyMap() KeyMap {
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab", "switch sort/field"),
+			key.WithHelp("tab", "next field"),
+		),
+		ShiftTab: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("shift+tab", "prev field"),
 		),
 		Upvote: key.NewBinding(
 			key.WithKeys("u"),
@@ -76,3 +91,4 @@ func DefaultKeyMap() KeyMap {
 		),
 	}
 }
+

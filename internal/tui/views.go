@@ -16,138 +16,144 @@ const logo = ` ____                _ ___ _____
 |_| \_\___|\__,_|\__,_|___| |_|`
 
 func (m *Model) viewLoading() string {
-	return m.centeredView(
-		styleLogo.Render(logo) + "\n" +
-			styleSubtitle.Render("  Connecting..."),
-	)
+	var b strings.Builder
+	b.WriteString(styleLogo.Render(logo) + "\n\n")
+	b.WriteString(styleSubtitle.Render("Connecting to ReadIT SSH server...") + "\n")
+	card := styleModalCard.Render(b.String())
+	return m.centeredView(card)
 }
 
 func (m *Model) viewOnboarding() string {
-	header := styleLogo.Render("ReadIT") +
-		styleSubtitle.Render("  •  Welcome")
-	ruleWidth := 70
-	if m.width > 0 {
-		ruleWidth = m.width
-	}
-	separator := styleRule.Render(strings.Repeat("─", ruleWidth))
-	topHeader := header + "\n" + separator
-
-	cardWidth := 60
-	if m.width > 0 {
-		cardWidth = min(70, max(36, m.width-8))
-	}
-	contentWidth := max(16, cardWidth-6)
-	inputWidth := max(12, contentWidth-4)
+	_, _, contentWidth, _ := m.shellDimensions()
 
 	var f strings.Builder
-	f.WriteString(stylePrompt.Render("Welcome! Your SSH key is new here.") + "\n\n")
-	f.WriteString(styleSubtitle.Render("Pick a username to get started (3-20 characters):") + "\n\n")
-	f.WriteString(styleInputFocused.Width(inputWidth).Render(m.handleInput.View()) + "\n\n")
-	f.WriteString(styleSubtitle.Render("Press enter to confirm • esc to quit"))
+	f.WriteString(stylePrompt.Render("Welcome to ReadIT!") + "\n\n")
+	f.WriteString(styleSubtitle.Render("Your SSH public key is new here.") + "\n")
+	f.WriteString(styleSubtitle.Render("Pick a unique handle to get started (3-20 characters):") + "\n\n")
+
+	cardWidth := min(64, max(36, contentWidth-4))
+	innerInputWidth := max(20, cardWidth-8)
+	m.handleInput.Width = innerInputWidth
+
+	f.WriteString(styleInputFocused.Width(innerInputWidth).Render(m.handleInput.View()) + "\n\n")
+	f.WriteString(styleSubtitle.Render("Press [enter] to confirm  •  [esc] to quit"))
 
 	if m.err != nil {
 		f.WriteString("\n\n" + styleError.Render("Error: "+sanitize.SingleLine(m.err.Error())))
 	}
 
-	cardStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
-		Padding(1, 2)
-	card := cardStyle.Render(f.String())
-
-	statusBar := m.renderStatusBar("Welcome", [][2]string{
+	card := styleModalCard.Width(cardWidth).Render(f.String())
+	shortcuts := [][2]string{
 		{"enter", "confirm"},
 		{"esc", "quit"},
-	})
+	}
 
-	return m.renderDockedViewWithCenteredContent(topHeader, card, statusBar)
+	return m.renderAppShell("Welcome", lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
 }
 
+// viewBoardList renders the Reddit-inspired Terminal Landing Page.
 func (m *Model) viewBoardList() string {
-	safeHandle := ""
-	if m.user != nil {
-		safeHandle = sanitize.SingleLine(m.user.Handle)
-	}
-	header := styleLogo.Render("ReadIT") +
-		styleSubtitle.Render(fmt.Sprintf("  logged in as @%s", safeHandle))
-	ruleWidth := 70
-	if m.width > 0 {
-		ruleWidth = m.width
-	}
-	separator := styleRule.Render(strings.Repeat("─", ruleWidth))
-	topHeader := header + "\n" + separator
+	_, _, contentWidth, _ := m.shellDimensions()
 
-	headerH := lipgloss.Height(topHeader)
-	availH := 10
-	if m.height > 0 {
-		availH = max(2, m.height-headerH-1)
-	}
+	var b strings.Builder
 
-	var content strings.Builder
+	// 1. Centered Hero Branding
+	logoText := styleLogo.Render(logo)
+	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, logoText) + "\n\n")
+
+	tagline := styleTagline.Render("A Reddit-style forum in your terminal  •  SSH Edition")
+	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, tagline) + "\n\n")
+
+	// 2. Boards Directory Panel
+	panelWidth := min(76, max(42, contentWidth-8))
+	var boardRows strings.Builder
+
+	headerLabel := styleTitle.Render("Community Boards")
+	countLabel := styleSortPill.Render(fmt.Sprintf("%d boards", len(m.boards)))
+	boardRows.WriteString(renderFormLabel(headerLabel, countLabel, panelWidth-6) + "\n")
+	boardRows.WriteString(styleRule.Render(strings.Repeat("─", panelWidth-6)) + "\n\n")
+
 	if len(m.boards) == 0 {
-		content.WriteString("\n" + styleSubtitle.Render("  No boards found.") + "\n")
+		boardRows.WriteString("  " + styleSubtitle.Render("No community boards found.") + "\n")
 	} else {
-		boardsPerPage := max(1, availH)
-		startIdx := 0
-		if m.boardCursor >= boardsPerPage {
-			startIdx = m.boardCursor - boardsPerPage + 1
-		}
-		endIdx := min(len(m.boards), startIdx+boardsPerPage)
-
-		for i := startIdx; i < endIdx; i++ {
-			board := m.boards[i]
+		for i, board := range m.boards {
 			safeSlug := sanitize.SingleLine(board.Slug)
 			safeDesc := sanitize.SingleLine(board.Description)
-			itemText := fmt.Sprintf("/b/%s — %s", safeSlug, safeDesc)
 
-			var line string
-			if i == m.boardCursor {
-				line = styleSelectedItem.Render(itemText)
-			} else {
-				line = styleNormalItem.Render(itemText)
+			slugPart := fmt.Sprintf("/b/%-12s", safeSlug)
+			descPart := safeDesc
+
+			maxDescW := max(10, panelWidth-24)
+			if lipgloss.Width(descPart) > maxDescW {
+				descPart = descPart[:max(0, maxDescW-3)] + "..."
 			}
-			content.WriteString(line + "\n")
+
+			if i == m.boardCursor {
+				line := lipgloss.NewStyle().
+					Foreground(currentTheme.Primary).
+					Bold(true).
+					Render(fmt.Sprintf("▌ › %s   %s", slugPart, styleSubtitle.Render(descPart)))
+				boardRows.WriteString(line + "\n")
+			} else {
+				line := fmt.Sprintf("    %s   %s", styleTitle.Render(slugPart), styleSubtitle.Render(descPart))
+				boardRows.WriteString(line + "\n")
+			}
 		}
 	}
 
-	statusBar := m.renderStatusBar("ReadIT", [][2]string{
+	boardCard := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(currentTheme.Border).
+		Padding(1, 2).
+		Width(panelWidth).
+		Render(boardRows.String())
+
+	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, boardCard))
+
+	shortcuts := [][2]string{
 		{"↑/k", "up"},
 		{"↓/j", "down"},
-		{"enter", "select"},
+		{"g/G", "top/bottom"},
+		{"enter", "enter board"},
 		{"q", "quit"},
-	})
+	}
 
-	return m.renderDockedView(topHeader, content.String(), statusBar)
+	return m.renderAppShell("ReadIT", b.String(), shortcuts)
 }
 
+// viewPostList renders the rich Reddit-style discussion feed.
 func (m *Model) viewPostList() string {
+	_, _, contentWidth, contentHeight := m.shellDimensions()
+
 	boardSlug := ""
-	boardTitle := ""
+	boardDesc := ""
 	if m.currentBoard != nil {
 		boardSlug = sanitize.SingleLine(m.currentBoard.Slug)
-		boardTitle = "/b/" + boardSlug
+		boardDesc = sanitize.SingleLine(m.currentBoard.Description)
 	}
-	header := styleLogo.Render("ReadIT") +
-		styleSubtitle.Render("  "+boardTitle)
-	ruleWidth := 70
-	if m.width > 0 {
-		ruleWidth = m.width
-	}
-	separator := styleRule.Render(strings.Repeat("─", ruleWidth))
-	topHeader := header + "\n" + separator
-
-	headerH := lipgloss.Height(topHeader)
-	availH := 10
-	if m.height > 0 {
-		availH = max(2, m.height-headerH-1)
-	}
+	contextTitle := "/b/" + boardSlug
 
 	var content strings.Builder
+
+	// Board Subheader Banner
+	boardBanner := fmt.Sprintf("/b/%s", boardSlug)
+	if boardDesc != "" {
+		boardBanner += "  ·  " + boardDesc
+	}
+	countStr := fmt.Sprintf("%d discussions  •  newest", len(m.posts))
+	headerRow := renderFormLabel(styleTitle.Render(boardBanner), styleSortPill.Render(countStr), contentWidth)
+	content.WriteString(headerRow + "\n")
+	content.WriteString(styleRule.Render(strings.Repeat("─", contentWidth)) + "\n\n")
+
 	if len(m.posts) == 0 {
-		content.WriteString("\n" + styleSubtitle.Render("  No posts yet. Press n to create the first discussion!") + "\n")
+		emptyMsg := fmt.Sprintf("\n  💬  No discussions yet in /b/%s\n\n  Be the first to start a conversation!\n  Press [n] to create a new discussion.\n", boardSlug)
+		emptyCard := styleEmptyCard.Width(min(58, contentWidth-4)).Render(emptyMsg)
+		content.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, emptyCard))
 	} else {
-		// Window posts to fit in available height (each post occupies 2 lines)
-		postsPerPage := max(1, availH/2)
+		// Window posts: each post consumes ~3 lines (vote column + title + meta + spacing)
+		availForPosts := max(3, contentHeight-3)
+		postsPerPage := max(1, availForPosts/3)
+
 		startIdx := 0
 		if m.postCursor >= postsPerPage {
 			startIdx = m.postCursor - postsPerPage + 1
@@ -156,36 +162,68 @@ func (m *Model) viewPostList() string {
 
 		for i := startIdx; i < endIdx; i++ {
 			post := m.posts[i]
-			score := styleScore.Render(fmt.Sprintf("%d▲", post.Score))
-			comments := styleSubtitle.Render(fmt.Sprintf("%d comments", post.CommentCount))
-			timeStr := styleSubtitle.Render(relativeTime(post.CreatedAt.Time))
-			author := styleSubtitle.Render(fmt.Sprintf("by @%s", sanitize.SingleLine(post.AuthorHandle)))
-			safeTitle := sanitize.SingleLine(post.Title)
+			isSelected := (i == m.postCursor)
 
-			var title string
-			if i == m.postCursor {
-				title = styleSelectedItem.Render(safeTitle)
+			// Vote column
+			var voteCol string
+			if isSelected {
+				voteCol = styleVoteUp.Render("▲") + "\n" +
+					styleScore.Render(fmt.Sprintf("%2d", post.Score)) + "\n" +
+					styleVoteDown.Render("▼")
 			} else {
-				title = styleNormalItem.Render(safeTitle)
+				voteCol = styleVoteNeutral.Render("▲") + "\n" +
+					styleScore.Copy().Foreground(currentTheme.TextMuted).Render(fmt.Sprintf("%2d", post.Score)) + "\n" +
+					styleVoteNeutral.Render("▼")
 			}
 
-			line := lipgloss.JoinHorizontal(lipgloss.Top, score, " ", title)
-			content.WriteString(line + "\n")
-			content.WriteString(fmt.Sprintf("       %s • %s • %s\n", author, timeStr, comments))
+			// Content column
+			safeTitle := sanitize.SingleLine(post.Title)
+			var titleView string
+			if isSelected {
+				titleView = stylePostTitleSelected.Render(safeTitle)
+			} else {
+				titleView = stylePostTitle.Render(safeTitle)
+			}
+
+			timeStr := relativeTime(post.CreatedAt.Time)
+			authorStr := "@" + sanitize.SingleLine(post.AuthorHandle)
+			commentsStr := fmt.Sprintf("%d comments", post.CommentCount)
+
+			metaLine := fmt.Sprintf("%s • %s • %s",
+				styleMetaAuthor.Render(authorStr),
+				styleMeta.Render(timeStr),
+				styleMeta.Render(commentsStr),
+			)
+			if post.Url != "" {
+				metaLine += " • " + styleLinkBadge.Render("link")
+			}
+
+			contentBox := titleView + "\n" + metaLine
+			postRow := lipgloss.JoinHorizontal(lipgloss.Top, voteCol, "   ", contentBox)
+
+			if isSelected {
+				cardWidth := contentWidth - 2
+				postCard := stylePostCardSelected.Width(cardWidth).Render(postRow)
+				content.WriteString(postCard + "\n\n")
+			} else {
+				postCard := stylePostCardNormal.Render(postRow)
+				content.WriteString(postCard + "\n\n")
+			}
 		}
 	}
 
-	statusBar := m.renderStatusBar("/b/"+boardSlug, [][2]string{
+	shortcuts := [][2]string{
 		{"↑/k", "up"},
 		{"↓/j", "down"},
+		{"g/G", "top/end"},
 		{"enter", "view"},
 		{"u/d", "vote"},
 		{"n", "new post"},
-		{"esc", "back"},
+		{"esc", "boards"},
 		{"q", "quit"},
-	})
+	}
 
-	return m.renderDockedView(topHeader, content.String(), statusBar)
+	return m.renderAppShell(contextTitle, content.String(), shortcuts)
 }
 
 func (m *Model) viewPostDetail() string {
@@ -193,25 +231,19 @@ func (m *Model) viewPostDetail() string {
 	if m.currentBoard != nil {
 		boardSlug = sanitize.SingleLine(m.currentBoard.Slug)
 	}
-	header := styleLogo.Render("ReadIT") +
-		styleSubtitle.Render(fmt.Sprintf("  /b/%s  •  Discussion", boardSlug))
-	ruleWidth := 70
-	if m.width > 0 {
-		ruleWidth = m.width
-	}
-	separator := styleRule.Render(strings.Repeat("─", ruleWidth))
-	topHeader := header + "\n" + separator
+	contextTitle := "/b/" + boardSlug + " · Discussion"
 
-	statusBar := m.renderStatusBar("/b/"+boardSlug, [][2]string{
+	shortcuts := [][2]string{
 		{"j/k", "navigate"},
 		{"u/d", "vote"},
 		{"r", "reply"},
 		{"R", "reply to post"},
+		{"g/G", "top/end"},
 		{"esc", "back"},
 		{"q", "quit"},
-	})
+	}
 
-	return m.renderDockedView(topHeader, m.viewport.View(), statusBar)
+	return m.renderAppShell(contextTitle, m.viewport.View(), shortcuts)
 }
 
 func (m *Model) renderPostDetailContent() string {
@@ -227,28 +259,33 @@ func (m *Model) renderPostDetailContent() string {
 		contentWidth = max(20, m.viewport.Width)
 	}
 
-	// Post Header
+	// 1. Post Header with Vote Column & Content
+	scoreStr := fmt.Sprintf("%2d", p.Score)
+	voteCol := styleVoteUp.Render("▲") + "\n" +
+		styleScore.Render(scoreStr) + "\n" +
+		styleVoteDown.Render("▼")
+
 	titleStr := sanitize.SingleLine(p.Title)
-	title := styleTitle.Copy().Foreground(colorPrimary).Render(titleStr)
-	score := styleScore.Render(fmt.Sprintf("%d▲", p.Score))
+	title := styleTitle.Copy().Foreground(currentTheme.Primary).Render(titleStr)
 	author := styleAuthor.Render("@" + sanitize.SingleLine(p.AuthorHandle))
 	timeStr := styleSubtitle.Render(relativeTime(p.CreatedAt.Time))
+	meta := fmt.Sprintf("Posted by %s • %s", author, timeStr)
 
 	if m.commentCursor == -1 {
-		selectedIndicator := lipgloss.NewStyle().Foreground(colorAccent).Italic(true).Render("  ◄ post selected (r to reply)")
-		b.WriteString(fmt.Sprintf("%s  %s%s\n", score, title, selectedIndicator))
-	} else {
-		b.WriteString(fmt.Sprintf("%s  %s\n", score, title))
+		selectedIndicator := lipgloss.NewStyle().Foreground(currentTheme.Accent).Italic(true).Render("  ◄ post selected (r to reply)")
+		title = title + selectedIndicator
 	}
-	b.WriteString(fmt.Sprintf("    Posted by %s • %s\n", author, timeStr))
 
+	contentBox := title + "\n" + meta
 	if p.Url != "" {
-		urlStr := styleSubtitle.Copy().Foreground(colorAccent).Render("Link: " + sanitize.SingleLine(p.Url))
-		b.WriteString("    " + urlStr + "\n")
+		urlStr := styleSubtitle.Copy().Foreground(currentTheme.Accent).Render("Link: " + sanitize.SingleLine(p.Url))
+		contentBox += "\n" + urlStr
 	}
 
-	// Post Body with wrapping
-	b.WriteString("\n")
+	headerRow := lipgloss.JoinHorizontal(lipgloss.Top, voteCol, "   ", contentBox)
+	b.WriteString(headerRow + "\n\n")
+
+	// 2. Post Body with wrapping
 	if p.Body != "" {
 		bodyWidth := max(20, contentWidth-6)
 		bodyStyle := stylePostBody.Copy().Width(bodyWidth)
@@ -256,21 +293,20 @@ func (m *Model) renderPostDetailContent() string {
 	}
 	b.WriteString("\n" + styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n")
 
-	// Comments Header
+	// 3. Comments Header
 	commentCount := len(m.comments)
-	b.WriteString(fmt.Sprintf("  Comments (%d)   [r: reply to selected • R: reply to post]\n", commentCount))
+	b.WriteString(fmt.Sprintf("  Comments (%d)   •   [r: reply to selected • R: reply to post]\n", commentCount))
 	b.WriteString(styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n\n")
 
 	if commentCount == 0 {
-		b.WriteString(styleSubtitle.Render("    No comments yet. Be the first to reply (press r)!") + "\n")
+		b.WriteString(styleSubtitle.Render("    💬  No comments yet. Be the first to reply (press r)!") + "\n")
 		return b.String()
 	}
 
 	m.commentLineOffsets = make([]int, len(m.comments))
 
-	// Render Threaded Comments
+	// 4. Threaded Comments Tree
 	for i, c := range m.comments {
-		// Record line offset before writing this comment
 		m.commentLineOffsets[i] = strings.Count(b.String(), "\n")
 
 		depth := int(c.Depth)
@@ -294,10 +330,10 @@ func (m *Model) renderPostDetailContent() string {
 		var selPill string
 
 		if isSelected {
-			indicator = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render("▌ ")
+			indicator = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("▌ ")
 			branch = styleSelectedBranch.Render(branchGlyph)
-			cAuthor = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render("@" + sanitize.SingleLine(c.AuthorHandle))
-			selPill = lipgloss.NewStyle().Foreground(colorAccent).Italic(true).Render("  ◄ selected (r to reply)")
+			cAuthor = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("@" + sanitize.SingleLine(c.AuthorHandle))
+			selPill = lipgloss.NewStyle().Foreground(currentTheme.Accent).Italic(true).Render("  ◄ selected (r to reply)")
 		} else {
 			indicator = "  "
 			branch = styleBranch.Render(branchGlyph)
@@ -319,7 +355,7 @@ func (m *Model) renderPostDetailContent() string {
 
 		var bodyPrefix string
 		if isSelected {
-			bodyPrefix = fmt.Sprintf("%s%s▌  ", indicator, indent)
+			bodyPrefix = fmt.Sprintf("%s%s   ", indicator, indent)
 		} else {
 			bodyPrefix = fmt.Sprintf("  %s   ", indent)
 		}
@@ -337,15 +373,7 @@ func (m *Model) viewNewPost() string {
 	if m.currentBoard != nil {
 		boardSlug = sanitize.SingleLine(m.currentBoard.Slug)
 	}
-
-	header := styleLogo.Render("ReadIT") +
-		styleSubtitle.Render(fmt.Sprintf("  /b/%s  •  Create Discussion", boardSlug))
-	ruleWidth := 70
-	if m.width > 0 {
-		ruleWidth = m.width
-	}
-	separator := styleRule.Render(strings.Repeat("─", ruleWidth))
-	topHeader := header + "\n" + separator
+	contextTitle := "/b/" + boardSlug + " · New Discussion"
 
 	_, contentWidth, inputWidth := m.formDimensions()
 
@@ -394,18 +422,19 @@ func (m *Model) viewNewPost() string {
 
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
-		Padding(1, 2)
+		BorderForeground(currentTheme.Border).
+		Padding(1, 2).
+		Background(currentTheme.CardBg)
 	card := cardStyle.Render(f.String())
 
-	statusBar := m.renderStatusBar("/b/"+boardSlug, [][2]string{
+	shortcuts := [][2]string{
 		{"enter/tab", "next"},
 		{"shift+tab", "prev"},
 		{"ctrl+s", "publish"},
 		{"esc", "cancel"},
-	})
+	}
 
-	return m.renderDockedViewWithCenteredContent(topHeader, card, statusBar)
+	return m.renderAppShell(contextTitle, lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
 }
 
 func (m *Model) viewNewComment() string {
@@ -413,15 +442,7 @@ func (m *Model) viewNewComment() string {
 	if m.replyParentAuthor != "" {
 		target = fmt.Sprintf("@%s", sanitize.SingleLine(m.replyParentAuthor))
 	}
-
-	header := styleLogo.Render("ReadIT") +
-		styleSubtitle.Render(fmt.Sprintf("  Replying to %s", target))
-	ruleWidth := 70
-	if m.width > 0 {
-		ruleWidth = m.width
-	}
-	separator := styleRule.Render(strings.Repeat("─", ruleWidth))
-	topHeader := header + "\n" + separator
+	contextTitle := "Reply to " + target
 
 	_, contentWidth, inputWidth := m.formDimensions()
 
@@ -441,16 +462,17 @@ func (m *Model) viewNewComment() string {
 
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
-		Padding(1, 2)
+		BorderForeground(currentTheme.Border).
+		Padding(1, 2).
+		Background(currentTheme.CardBg)
 	card := cardStyle.Render(f.String())
 
-	statusBar := m.renderStatusBar("reply", [][2]string{
+	shortcuts := [][2]string{
 		{"ctrl+s", "submit reply"},
 		{"esc", "cancel"},
-	})
+	}
 
-	return m.renderDockedViewWithCenteredContent(topHeader, card, statusBar)
+	return m.renderAppShell(contextTitle, lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
 }
 
 func (m *Model) viewError() string {
@@ -458,10 +480,12 @@ func (m *Model) viewError() string {
 	if m.err != nil {
 		errText = sanitize.SingleLine(m.err.Error())
 	}
-	return m.centeredView(
-		styleError.Render("Error: "+errText) + "\n\n" +
-			styleSubtitle.Render("Press q to quit"),
-	)
+	var b strings.Builder
+	b.WriteString(styleError.Render("⚠ Application Error") + "\n\n")
+	b.WriteString(styleSubtitle.Render(errText) + "\n\n")
+	b.WriteString(styleSubtitle.Render("Press [esc] or [q] to return."))
+	card := styleErrorCard.Render(b.String())
+	return m.centeredView(card)
 }
 
 // centeredView centers content vertically and horizontally.
@@ -476,6 +500,7 @@ func (m *Model) centeredView(content string) string {
 	)
 }
 
+// renderDockedView preserved for helper compatibility and line testing.
 func (m *Model) renderDockedView(header, content, statusBar string) string {
 	if m.width <= 0 || m.height <= 0 {
 		return header + "\n" + content + "\n" + statusBar
@@ -502,6 +527,7 @@ func (m *Model) renderDockedView(header, content, statusBar string) string {
 	return header + "\n" + content + "\n" + statusBar
 }
 
+// renderDockedViewWithCenteredContent preserved for helper compatibility and line testing.
 func (m *Model) renderDockedViewWithCenteredContent(header, card, statusBar string) string {
 	if m.width <= 0 || m.height <= 0 {
 		return header + "\n" + card + "\n" + statusBar
@@ -528,6 +554,7 @@ func (m *Model) renderDockedViewWithCenteredContent(header, card, statusBar stri
 	return header + "\n" + horizCentered + "\n" + statusBar
 }
 
+// renderStatusBar preserved for status bar helper tests.
 func (m *Model) renderStatusBar(left string, shortcuts [][2]string) string {
 	if left == "" {
 		left = "ReadIT"
@@ -543,7 +570,7 @@ func (m *Model) renderStatusBar(left string, shortcuts [][2]string) string {
 
 	var userStr string
 	if m.user != nil {
-		userStr = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Padding(0, 1).Render("@" + sanitize.SingleLine(m.user.Handle))
+		userStr = lipgloss.NewStyle().Foreground(currentTheme.Accent).Bold(true).Padding(0, 1).Render("@" + sanitize.SingleLine(m.user.Handle))
 	}
 
 	w := m.width
@@ -558,7 +585,6 @@ func (m *Model) renderStatusBar(left string, shortcuts [][2]string) string {
 	rW := lipgloss.Width(userStr)
 	cW := lipgloss.Width(centerStr)
 
-	// Adaptive sizing for compact terminals
 	if w < lW+cW+rW+4 {
 		userStr = ""
 		rW = 0
@@ -594,7 +620,6 @@ func renderFormLabel(label, count string, targetWidth int) string {
 	return label + strings.Repeat(" ", spaces) + count
 }
 
-// relativeTime formats timestamps into human-readable relative duration.
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
 		return ""

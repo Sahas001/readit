@@ -468,6 +468,12 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 			if m.boardCursor < len(m.boards)-1 {
 				m.boardCursor++
 			}
+		case msg.String() == "g" || msg.String() == "home":
+			m.boardCursor = 0
+		case msg.String() == "G" || msg.String() == "end":
+			if len(m.boards) > 0 {
+				m.boardCursor = len(m.boards) - 1
+			}
 		case msg.String() == "enter":
 			if len(m.boards) > 0 {
 				board := m.boards[m.boardCursor]
@@ -514,6 +520,12 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 		case msg.String() == "j" || msg.String() == "down":
 			if m.postCursor < len(m.posts)-1 {
 				m.postCursor++
+			}
+		case msg.String() == "g" || msg.String() == "home":
+			m.postCursor = 0
+		case msg.String() == "G" || msg.String() == "end":
+			if len(m.posts) > 0 {
+				m.postCursor = len(m.posts) - 1
 			}
 		case msg.String() == "enter":
 			if len(m.posts) > 0 {
@@ -562,26 +574,14 @@ func (m *Model) loadPostDetailCmd(postID int64) tea.Cmd {
 }
 
 func (m *Model) updateViewportSize() {
-	headerHeight := 2
-	statusHeight := 1
-	availHeight := 20
-	if m.height > 0 {
-		availHeight = max(3, m.height-headerHeight-statusHeight)
-	}
-	m.viewport.Height = availHeight
-	if m.width > 0 {
-		m.viewport.Width = max(20, m.width)
-	}
+	_, _, contentWidth, contentHeight := m.shellDimensions()
+	m.viewport.Width = max(20, contentWidth)
+	m.viewport.Height = max(4, contentHeight)
 }
 
 func (m *Model) formDimensions() (cardWidth, contentWidth, inputWidth int) {
-	cardWidth = 72
-	if m.width > 0 {
-		cardWidth = min(76, max(36, m.width-8))
-		if m.width < 44 {
-			cardWidth = max(24, m.width-4)
-		}
-	}
+	_, _, maxContentW, _ := m.shellDimensions()
+	cardWidth = min(74, max(36, maxContentW-4))
 	// Card has Border(1 left + 1 right = 2) and Padding(1, 2 = 4 horizontal).
 	// Content width inside card is cardWidth - 6.
 	contentWidth = max(16, cardWidth-6)
@@ -631,6 +631,9 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			m.currentView = viewPostList
+			if m.currentBoard != nil {
+				return m, m.loadPostsCmd(m.currentBoard.ID)
+			}
 			return m, nil
 		case "q":
 			return m, tea.Quit
@@ -650,6 +653,18 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 				} else {
 					m.ensureCommentVisible(m.commentCursor)
 				}
+				return m, nil
+			}
+		case "g", "home":
+			m.commentCursor = -1
+			m.viewport.SetContent(m.renderPostDetailContent())
+			m.viewport.GotoTop()
+			return m, nil
+		case "G", "end":
+			if len(m.comments) > 0 {
+				m.commentCursor = len(m.comments) - 1
+				m.viewport.SetContent(m.renderPostDetailContent())
+				m.viewport.GotoBottom()
 				return m, nil
 			}
 		case "tab":

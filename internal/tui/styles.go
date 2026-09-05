@@ -2,128 +2,214 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Theme colours.
+// Convenience color references from currentTheme for backwards compatibility.
 var (
-	colorPrimary   = lipgloss.Color("#FF4500") // Reddit orange
-	colorSecondary = lipgloss.Color("#5A5A5A")
-	colorAccent    = lipgloss.Color("#00D1B2")
-	colorText      = lipgloss.Color("#E0E0E0")
-	colorMuted     = lipgloss.Color("#808080")
-	colorBg        = lipgloss.Color("#1A1A2E")
-	colorCardBg    = lipgloss.Color("#222238")
-	colorUpvote    = lipgloss.Color("#FF8B60")
-	colorDownvote  = lipgloss.Color("#7193FF")
-	colorBorder    = lipgloss.Color("#3A3A52")
+	colorPrimary   = currentTheme.Primary
+	colorSecondary = currentTheme.Secondary
+	colorAccent    = currentTheme.Accent
+	colorText      = currentTheme.Text
+	colorMuted     = currentTheme.TextMuted
+	colorBg        = currentTheme.Background
+	colorCardBg    = currentTheme.CardBg
+	colorUpvote    = currentTheme.Upvote
+	colorDownvote  = currentTheme.Downvote
+	colorBorder    = currentTheme.Border
 )
 
-// Reusable styles.
+// Typography and Branding Styles
 var (
 	styleLogo = lipgloss.NewStyle().
-			Foreground(colorPrimary).
+			Foreground(currentTheme.Primary).
+			Bold(true)
+
+	styleLogoBadge = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(currentTheme.Primary).
 			Bold(true).
 			Padding(0, 1)
 
+	styleTagline = lipgloss.NewStyle().
+			Foreground(currentTheme.TextMuted).
+			Italic(true)
+
 	styleTitle = lipgloss.NewStyle().
-			Foreground(colorText).
+			Foreground(currentTheme.Text).
 			Bold(true)
 
 	styleSubtitle = lipgloss.NewStyle().
-			Foreground(colorMuted).
-			Italic(true)
+			Foreground(currentTheme.TextMuted)
 
+	styleMeta = lipgloss.NewStyle().
+			Foreground(currentTheme.TextMuted)
+
+	styleMetaAuthor = lipgloss.NewStyle().
+			Foreground(currentTheme.Text).
+			Bold(true)
+
+	stylePrompt = lipgloss.NewStyle().
+			Foreground(currentTheme.Accent).
+			Bold(true)
+
+	styleRule = lipgloss.NewStyle().
+			Foreground(currentTheme.Border)
+)
+
+// Board and Post List Styles
+var (
 	styleScore = lipgloss.NewStyle().
-			Foreground(colorUpvote).
+			Foreground(currentTheme.Upvote).
 			Bold(true).
 			Width(5).
 			Align(lipgloss.Right)
 
+	styleVoteNeutral = lipgloss.NewStyle().
+				Foreground(currentTheme.TextDim).
+				Bold(true)
+
+	styleVoteUp = lipgloss.NewStyle().
+			Foreground(currentTheme.Upvote).
+			Bold(true)
+
+	styleVoteDown = lipgloss.NewStyle().
+			Foreground(currentTheme.Downvote).
+			Bold(true)
+
 	styleSelectedItem = lipgloss.NewStyle().
-				Foreground(colorPrimary).
+				Foreground(currentTheme.Primary).
 				Bold(true).
 				BorderLeft(true).
 				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(colorPrimary).
+				BorderForeground(currentTheme.Primary).
 				PaddingLeft(1)
 
 	styleNormalItem = lipgloss.NewStyle().
-			Foreground(colorText).
+			Foreground(currentTheme.Text).
 			PaddingLeft(2)
 
-	styleStatusBar = lipgloss.NewStyle().
-			Foreground(colorMuted).
-			Background(colorCardBg)
-
-	styleStatusBadge = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(colorPrimary).
-				Bold(true).
-				Padding(0, 1)
-
-	styleStatusKey = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
+	stylePostTitle = lipgloss.NewStyle().
+			Foreground(currentTheme.Text).
 			Bold(true)
 
-	styleStatusDesc = lipgloss.NewStyle().
-			Foreground(colorMuted)
-
-	styleStatusFlash = lipgloss.NewStyle().
-				Foreground(colorUpvote).
+	stylePostTitleSelected = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
 				Bold(true)
 
-	stylePrompt = lipgloss.NewStyle().
-			Foreground(colorAccent).
-			Bold(true)
+	stylePostCardSelected = lipgloss.NewStyle().
+				Background(currentTheme.CardBgHover).
+				BorderLeft(true).
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(currentTheme.Primary).
+				Padding(0, 1)
 
-	styleError = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF4545")).
-			Bold(true)
+	stylePostCardNormal = lipgloss.NewStyle().
+				Padding(0, 1).
+				PaddingLeft(2)
 
-	// Post detail and comment styles
+	styleLinkBadge = lipgloss.NewStyle().
+			Foreground(currentTheme.Accent).
+			Background(currentTheme.CardBg).
+			Padding(0, 1)
+
+	styleSortPill = lipgloss.NewStyle().
+			Foreground(currentTheme.TextDim).
+			Italic(true)
+)
+
+// Threaded Comment Styles
+var (
 	stylePostBody = lipgloss.NewStyle().
-			Foreground(colorText).
+			Foreground(currentTheme.Text).
 			Padding(1, 0)
 
 	styleBranch = lipgloss.NewStyle().
-			Foreground(colorMuted)
+			Foreground(currentTheme.TextDim)
 
 	styleSelectedBranch = lipgloss.NewStyle().
-				Foreground(colorPrimary).
+				Foreground(currentTheme.Primary).
 				Bold(true)
 
 	styleAuthor = lipgloss.NewStyle().
-			Foreground(colorAccent).
-			Bold(true)
-
-	styleBadge = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(colorPrimary).
-			Padding(0, 1).
+			Foreground(currentTheme.Accent).
 			Bold(true)
 
 	styleOpBadge = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(colorPrimary).
+			Background(currentTheme.Primary).
 			Padding(0, 1).
 			Bold(true)
 
+	styleBadge = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(currentTheme.Primary).
+			Padding(0, 1).
+			Bold(true)
+)
+
+// Modal Form & Dialog Styles
+var (
 	styleInputFocused = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorPrimary).
+				BorderForeground(currentTheme.Primary).
 				Padding(0, 1)
 
 	styleInputBlurred = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorBorder).
+				BorderForeground(currentTheme.Border).
 				Padding(0, 1)
 
-	styleHeaderBox = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(colorBorder).
-			PaddingBottom(1)
+	styleModalCard = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(currentTheme.Border).
+			Padding(1, 2).
+			Background(currentTheme.CardBg)
 
 	styleCharCount = lipgloss.NewStyle().
-			Foreground(colorMuted)
-
-	styleRule = lipgloss.NewStyle().
-			Foreground(colorBorder)
+			Foreground(currentTheme.TextDim)
 )
+
+// Status & Navigation Bar Styles
+var (
+	styleStatusBar = lipgloss.NewStyle().
+			Foreground(currentTheme.TextMuted).
+			Background(currentTheme.CardBg)
+
+	styleStatusBadge = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(currentTheme.Primary).
+				Bold(true).
+				Padding(0, 1)
+
+	styleStatusKey = lipgloss.NewStyle().
+			Foreground(currentTheme.Text).
+			Bold(true)
+
+	styleStatusDesc = lipgloss.NewStyle().
+			Foreground(currentTheme.TextMuted)
+
+	styleStatusFlash = lipgloss.NewStyle().
+				Foreground(currentTheme.Upvote).
+				Bold(true)
+
+	styleStatusDot = lipgloss.NewStyle().
+			Foreground(currentTheme.Positive).
+			Bold(true)
+)
+
+// Notification, Error, and Empty State Styles
+var (
+	styleError = lipgloss.NewStyle().
+			Foreground(currentTheme.Negative).
+			Bold(true)
+
+	styleErrorCard = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(currentTheme.Negative).
+			Padding(1, 2)
+
+	styleEmptyCard = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(currentTheme.Border).
+			Padding(1, 3).
+			Align(lipgloss.Center)
+)
+
