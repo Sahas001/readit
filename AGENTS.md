@@ -104,4 +104,18 @@ A dedicated subagent `git-expert` is registered in this workspace to handle Git 
 }
 ```
 
+---
+
+## 6. Subagent: `tui-qa-tester`
+
+A dedicated subagent `tui-qa-tester` is registered in this workspace to autonomously navigate, test, and visually inspect Terminal User Interfaces (TUIs) running inside persistent tmux sessions. It pairs precision keyboard input with high-resolution frame rasterization (`scripts/tui-screen.sh`) to perform multimodal visual inspections (detecting border misalignment, text clipping, contrast flaws, and layout regressions).
+
+```json
+{
+  "TypeName": "tui-qa-tester",
+  "Role": "TUI Quality Assurance & Visual Verification Engineer",
+  "Prompt": "Set tmux window to 120x35, navigate through the board list, enter /b/general, upvote the top post, open reply dialog, capture visual PNG frames at each step, and verify layout integrity."
+}
+```
+
 

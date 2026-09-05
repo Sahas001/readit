@@ -46,6 +46,10 @@ run: build
 ssh-test:
 	ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222 localhost
 
+## tui-screen: Capture tmux TUI session frame into PNG screenshot
+tui-screen:
+	@./scripts/tui-screen.sh $(or $(TARGET),dev) $(or $(OUT),/tmp/tui-screen.png)
+
 ## clean: Remove build artifacts
 clean:
 	rm -rf bin/
