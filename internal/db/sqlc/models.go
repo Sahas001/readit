@@ -25,6 +25,8 @@ type Comment struct {
 	Score     int32              `json:"score"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	IsDeleted bool               `json:"is_deleted"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type CommentVote struct {
@@ -45,6 +47,8 @@ type Post struct {
 	CommentCount int32              `json:"comment_count"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	IsDeleted    bool               `json:"is_deleted"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type PostVote struct {

@@ -6,6 +6,8 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -24,12 +26,22 @@ type Querier interface {
 	GetPostVoteByUser(ctx context.Context, arg GetPostVoteByUserParams) (PostVote, error)
 	GetUserByID(ctx context.Context, id int64) (User, error)
 	GetUserByPubkey(ctx context.Context, pubkeySha256 string) (User, error)
+	HardDeleteComment(ctx context.Context, arg HardDeleteCommentParams) error
+	HardDeletePost(ctx context.Context, arg HardDeletePostParams) error
+	HasCommentChildren(ctx context.Context, parentID pgtype.Int8) (bool, error)
+	HasPostComments(ctx context.Context, postID int64) (bool, error)
 	IncrementPostCommentCount(ctx context.Context, id int64) error
 	ListBoards(ctx context.Context) ([]Board, error)
 	ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardNewParams) ([]ListPostsByBoardNewRow, error)
 	ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardTopParams) ([]ListPostsByBoardTopRow, error)
+	PruneAllEmptyDeletedPosts(ctx context.Context) error
+	PruneDeletedPostIfEmpty(ctx context.Context, id int64) error
+	PruneTombstoneComments(ctx context.Context, postID int64) error
 	RecalculateCommentScore(ctx context.Context, commentID int64) error
+	RecalculatePostCommentCount(ctx context.Context, postID int64) error
 	RecalculatePostScore(ctx context.Context, postID int64) error
+	SoftDeleteComment(ctx context.Context, arg SoftDeleteCommentParams) error
+	SoftDeletePost(ctx context.Context, arg SoftDeletePostParams) error
 	UpdateUserBio(ctx context.Context, arg UpdateUserBioParams) (User, error)
 	UpdateUserHandle(ctx context.Context, arg UpdateUserHandleParams) (User, error)
 	UpsertCommentVote(ctx context.Context, arg UpsertCommentVoteParams) error

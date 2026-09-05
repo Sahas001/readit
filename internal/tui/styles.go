@@ -170,8 +170,7 @@ var (
 // Status & Navigation Bar Styles
 var (
 	styleStatusBar = lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted).
-			Background(currentTheme.CardBg)
+			Foreground(currentTheme.TextMuted)
 
 	styleStatusBadge = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFFFFF")).

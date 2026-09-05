@@ -32,8 +32,27 @@ const (
 	viewPostDetail
 	viewNewPost
 	viewNewComment
+	viewDeleteConfirm
 	viewError
 )
+
+type deleteTargetType int
+
+const (
+	deleteTargetPost deleteTargetType = iota
+	deleteTargetComment
+)
+
+type deleteTarget struct {
+	targetType    deleteTargetType
+	id            int64
+	postID        int64
+	authorID      int64
+	titleOrBody   string
+	hasDependents bool
+	commentCount  int32
+	returnView    viewState
+}
 
 // Model is the root Bubble Tea model for the application.
 type Model struct {
@@ -89,6 +108,9 @@ type Model struct {
 	commentInput      textarea.Model
 	replyParentID     *int64
 	replyParentAuthor string
+
+	// Deletion confirmation.
+	pendingDelete *deleteTarget
 }
 
 // --- Messages ----------------------------------------------------------
@@ -135,6 +157,24 @@ type postCreatedMsg struct {
 // commentCreatedMsg signals that a comment was published.
 type commentCreatedMsg struct {
 	comment db.Comment
+}
+
+// postDeletedMsg signals that a post was deleted.
+type postDeletedMsg struct {
+	postID int64
+	isSoft bool
+}
+
+// commentDeletedMsg signals that a comment was deleted.
+type commentDeletedMsg struct {
+	commentID int64
+	postID    int64
+	isSoft    bool
+}
+
+// postPrunedMsg is sent when a soft-deleted post has had its last comment removed and is purged.
+type postPrunedMsg struct {
+	postID int64
 }
 
 // animTickMsg drives the Earth rotation and logo shine animation on the landing page.
@@ -324,6 +364,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flashMsg = "✓ Reply posted!"
 		m.currentView = viewPostDetail
 		return m, m.loadPostDetailCmd(msg.comment.PostID)
+	case postDeletedMsg:
+		// Return to post list and reload posts
+		m.currentView = viewPostList
+		m.pendingDelete = nil
+		if msg.isSoft {
+			m.flashMsg = "✓ Post deleted (content scrubbed)"
+		} else {
+			m.flashMsg = "✓ Post permanently deleted"
+		}
+		if m.currentBoard != nil {
+			return m, m.loadPostsCmd(m.currentBoard.ID)
+		}
+		return m, nil
+	case commentDeletedMsg:
+		// Return to post detail and reload comments
+		m.currentView = viewPostDetail
+		m.pendingDelete = nil
+		if msg.isSoft {
+			m.flashMsg = "✓ Comment deleted (marked [deleted])"
+		} else {
+			m.flashMsg = "✓ Comment permanently deleted"
+		}
+		if m.currentPost != nil {
+			return m, m.loadPostDetailCmd(msg.postID)
+		}
+		return m, nil
+	case postPrunedMsg:
+		m.currentView = viewPostList
+		m.pendingDelete = nil
+		m.flashMsg = "✓ Thread closed & pruned (all comments deleted)"
+		if m.currentBoard != nil {
+			return m, m.loadPostsCmd(m.currentBoard.ID)
+		}
+		return m, nil
 	case animTickMsg:
 		// Only advance animation while on the landing page.
 		if m.currentView == viewBoardList {
@@ -351,6 +425,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateNewPost(msg)
 	case viewNewComment:
 		return m.updateNewComment(msg)
+	case viewDeleteConfirm:
+		return m.updateDeleteConfirm(msg)
 	}
 
 	return m, nil
@@ -373,6 +449,8 @@ func (m *Model) View() string {
 		return m.viewNewPost()
 	case viewNewComment:
 		return m.viewNewComment()
+	case viewDeleteConfirm:
+		return m.viewDeleteConfirm()
 	case viewError:
 		return m.viewError()
 	default:
@@ -511,6 +589,9 @@ func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
+		// Proactively prune any empty soft-deleted posts
+		_ = m.queries.PruneAllEmptyDeletedPosts(ctx)
+
 		posts, err := m.queries.ListPostsByBoardNew(ctx, db.ListPostsByBoardNewParams{
 			BoardID: boardID,
 			Limit:   50,
@@ -553,14 +634,47 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 		case msg.String() == "n":
 			return m, m.openNewPost()
+		case msg.String() == "x":
+			if len(m.posts) == 0 {
+				return m, nil
+			}
+			post := m.posts[m.postCursor]
+			if post.IsDeleted {
+				m.flashMsg = "• Post is already deleted"
+				return m, nil
+			}
+			if m.user == nil || post.AuthorID != m.user.ID {
+				m.flashMsg = "✗ You can only delete your own posts"
+				return m, nil
+			}
+			m.pendingDelete = &deleteTarget{
+				targetType:    deleteTargetPost,
+				id:            post.ID,
+				postID:        post.ID,
+				authorID:      post.AuthorID,
+				titleOrBody:   post.Title,
+				hasDependents: post.CommentCount > 0,
+				commentCount:  post.CommentCount,
+				returnView:    viewPostList,
+			}
+			m.currentView = viewDeleteConfirm
+			return m, nil
 		case msg.String() == "u":
 			if len(m.posts) > 0 {
 				post := m.posts[m.postCursor]
+				if post.IsDeleted {
+					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
 				return m, m.castPostVoteCmd(post.ID, 1)
 			}
 		case msg.String() == "d":
 			if len(m.posts) > 0 {
 				post := m.posts[m.postCursor]
+				if post.IsDeleted {
+					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
 				return m, m.castPostVoteCmd(post.ID, -1)
 			}
 		}
@@ -577,7 +691,16 @@ func (m *Model) loadPostDetailCmd(postID int64) tea.Cmd {
 
 		post, err := m.queries.GetPostByID(ctx, postID)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return postPrunedMsg{postID: postID}
+			}
 			return errMsg{err: fmt.Errorf("loading post: %w", err)}
+		}
+
+		// If this post is soft-deleted and already has 0 comments, prune immediately
+		if post.IsDeleted && post.CommentCount == 0 {
+			_ = m.queries.PruneDeletedPostIfEmpty(ctx, postID)
+			return postPrunedMsg{postID: postID}
 		}
 
 		comments, err := m.queries.GetCommentThreadByPost(ctx, db.GetCommentThreadByPostParams{
@@ -586,6 +709,23 @@ func (m *Model) loadPostDetailCmd(postID int64) tea.Cmd {
 		})
 		if err != nil {
 			return errMsg{err: fmt.Errorf("loading comments: %w", err)}
+		}
+
+		// If post is deleted and all remaining comments are tombstones, prune the entire thread
+		if post.IsDeleted {
+			allTombstones := true
+			for _, c := range comments {
+				if !c.IsDeleted {
+					allTombstones = false
+					break
+				}
+			}
+			if allTombstones {
+				_ = m.queries.PruneTombstoneComments(ctx, postID)
+				_ = m.queries.RecalculatePostCommentCount(ctx, postID)
+				_ = m.queries.PruneDeletedPostIfEmpty(ctx, postID)
+				return postPrunedMsg{postID: postID}
+			}
 		}
 
 		return postDetailLoadedMsg{post: &post, comments: comments}
@@ -717,28 +857,113 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 		case "r":
 			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
 				comment := m.comments[m.commentCursor]
+				if comment.IsDeleted {
+					m.flashMsg = "• Cannot reply to a deleted comment"
+					return m, nil
+				}
 				return m, m.openNewComment(&comment.ID, comment.AuthorHandle)
 			}
 			if m.currentPost != nil {
+				if m.currentPost.IsDeleted {
+					m.flashMsg = "• Post is deleted. Discussion is locked."
+					return m, nil
+				}
 				return m, m.openNewComment(nil, m.currentPost.AuthorHandle)
 			}
 		case "R":
 			if m.currentPost != nil {
+				if m.currentPost.IsDeleted {
+					m.flashMsg = "• Post is deleted. Discussion is locked."
+					return m, nil
+				}
 				return m, m.openNewComment(nil, m.currentPost.AuthorHandle)
 			}
 		case "u":
 			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
+				if m.comments[m.commentCursor].IsDeleted {
+					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
 				return m, m.castCommentVoteCmd(m.comments[m.commentCursor].ID, 1)
 			}
 			if m.currentPost != nil {
+				if m.currentPost.IsDeleted {
+					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
 				return m, m.castPostVoteCmd(m.currentPost.ID, 1)
 			}
 		case "d":
 			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
+				if m.comments[m.commentCursor].IsDeleted {
+					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
 				return m, m.castCommentVoteCmd(m.comments[m.commentCursor].ID, -1)
 			}
 			if m.currentPost != nil {
+				if m.currentPost.IsDeleted {
+					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
 				return m, m.castPostVoteCmd(m.currentPost.ID, -1)
+			}
+		case "x":
+			if m.commentCursor == -1 {
+				// Post is selected
+				if m.currentPost == nil {
+					return m, nil
+				}
+				if m.currentPost.IsDeleted {
+					m.flashMsg = "• Post is already deleted"
+					return m, nil
+				}
+				if m.user == nil || m.currentPost.AuthorID != m.user.ID {
+					m.flashMsg = "✗ You can only delete your own posts"
+					return m, nil
+				}
+				hasComments := len(m.comments) > 0 || m.currentPost.CommentCount > 0
+				m.pendingDelete = &deleteTarget{
+					targetType:    deleteTargetPost,
+					id:            m.currentPost.ID,
+					postID:        m.currentPost.ID,
+					authorID:      m.currentPost.AuthorID,
+					titleOrBody:   m.currentPost.Title,
+					hasDependents: hasComments,
+					commentCount:  m.currentPost.CommentCount,
+					returnView:    viewPostList,
+				}
+				m.currentView = viewDeleteConfirm
+				return m, nil
+			} else if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
+				// Comment is selected
+				c := m.comments[m.commentCursor]
+				if c.IsDeleted {
+					m.flashMsg = "• Comment is already deleted"
+					return m, nil
+				}
+				if m.user == nil || c.AuthorID != m.user.ID {
+					m.flashMsg = "✗ You can only delete your own comments"
+					return m, nil
+				}
+				hasReplies := false
+				for _, other := range m.comments {
+					if other.ParentID.Valid && other.ParentID.Int64 == c.ID {
+						hasReplies = true
+						break
+					}
+				}
+				m.pendingDelete = &deleteTarget{
+					targetType:    deleteTargetComment,
+					id:            c.ID,
+					postID:        m.currentPost.ID,
+					authorID:      c.AuthorID,
+					titleOrBody:   c.Body,
+					hasDependents: hasReplies,
+					returnView:    viewPostDetail,
+				}
+				m.currentView = viewDeleteConfirm
+				return m, nil
 			}
 		}
 	}
@@ -1004,3 +1229,99 @@ func (m *Model) submitCommentCmd(body string) tea.Cmd {
 		return commentCreatedMsg{comment: comment}
 	}
 }
+
+// --- Deletion Confirmation ---------------------------------------------
+
+func (m *Model) updateDeleteConfirm(msg tea.Msg) (*Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "y", "Y", "enter":
+			target := m.pendingDelete
+			m.pendingDelete = nil
+			return m, m.executeDeleteCmd(target)
+		case "n", "N", "esc", "q":
+			returnView := viewPostList
+			if m.pendingDelete != nil {
+				returnView = m.pendingDelete.returnView
+			}
+			m.pendingDelete = nil
+			m.currentView = returnView
+			m.flashMsg = "• Deletion cancelled"
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) executeDeleteCmd(target *deleteTarget) tea.Cmd {
+	return func() tea.Msg {
+		if target == nil || m.user == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
+		defer cancel()
+
+		if target.targetType == deleteTargetPost {
+			hasComments, err := m.queries.HasPostComments(ctx, target.id)
+			if err != nil {
+				return errMsg{err: fmt.Errorf("checking post comments: %w", err)}
+			}
+			if hasComments {
+				if err := m.queries.SoftDeletePost(ctx, db.SoftDeletePostParams{
+					ID:       target.id,
+					AuthorID: m.user.ID,
+				}); err != nil {
+					return errMsg{err: fmt.Errorf("soft deleting post: %w", err)}
+				}
+				_ = m.queries.PruneTombstoneComments(ctx, target.id)
+				_ = m.queries.RecalculatePostCommentCount(ctx, target.id)
+				_ = m.queries.PruneDeletedPostIfEmpty(ctx, target.id)
+				return postDeletedMsg{postID: target.id, isSoft: true}
+			}
+
+			if err := m.queries.HardDeletePost(ctx, db.HardDeletePostParams{
+				ID:       target.id,
+				AuthorID: m.user.ID,
+			}); err != nil {
+				return errMsg{err: fmt.Errorf("hard deleting post: %w", err)}
+			}
+			return postDeletedMsg{postID: target.id, isSoft: false}
+		}
+
+		// Comment deletion
+		hasChildren, err := m.queries.HasCommentChildren(ctx, pgtype.Int8{Int64: target.id, Valid: true})
+		if err != nil {
+			return errMsg{err: fmt.Errorf("checking comment replies: %w", err)}
+		}
+		isSoft := false
+		if hasChildren {
+			if err := m.queries.SoftDeleteComment(ctx, db.SoftDeleteCommentParams{
+				ID:       target.id,
+				AuthorID: m.user.ID,
+			}); err != nil {
+				return errMsg{err: fmt.Errorf("soft deleting comment: %w", err)}
+			}
+			isSoft = true
+		} else {
+			if err := m.queries.HardDeleteComment(ctx, db.HardDeleteCommentParams{
+				ID:       target.id,
+				AuthorID: m.user.ID,
+			}); err != nil {
+				return errMsg{err: fmt.Errorf("hard deleting comment: %w", err)}
+			}
+		}
+
+		// 1. Prune dead tombstones (any soft-deleted parent comment that now has no active descendants)
+		_ = m.queries.PruneTombstoneComments(ctx, target.postID)
+
+		// 2. Ensure post comment count accurately reflects remaining active comments
+		_ = m.queries.RecalculatePostCommentCount(ctx, target.postID)
+
+		// 3. Prune the post if it was soft-deleted and now has 0 comments remaining!
+		_ = m.queries.PruneDeletedPostIfEmpty(ctx, target.postID)
+
+		return commentDeletedMsg{commentID: target.id, postID: target.postID, isSoft: isSoft}
+	}
+}
+

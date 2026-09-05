@@ -75,7 +75,7 @@ Compose new posts and replies using floating modal dialogs with nested input box
 - **Reddit / Lazygit Design System**: Centered application canvas, semantic dark palette, clean hairline borders, and responsive scaling from 80×24 up to 4K terminals.
 - **Vertical Vote Rhythm**: Reddit-style vertical vote block (`▲ score ▼`) with toggleable votes (upvote or downvote twice to return to neutral `0`).
 - **Deep Threaded Comments**: Indented recursive conversation trees with author differentiation, comment selection cursor, and targeted replies.
-- **Vim Navigation**: Full vim keybindings (`j`/`k`, `g`/`G`, `u`/`d`, `r`/`R`, `n`, `esc`) alongside standard arrow keys.
+- **Hybrid Post & Comment Deletion**: Safe, Reddit/Hacker News style deletion model (`x`). Empty posts and leaf comments are hard-deleted for zero storage waste; items with active discussion trees are soft-deleted with scrubbed payloads and `[deleted]` placeholders to maintain thread continuity without orphaned replies.
 - **Security & DoS Hardened**:
   - ANSI/VT100 escape code sanitization on all user strings to prevent terminal injection.
   - Recursion depth ceilings (`depth < 15`) on comment tree queries to prevent stack/memory exhaustion.
@@ -97,8 +97,9 @@ Compose new posts and replies using floating modal dialogs with nested input box
 | **Board List** | `Enter` | Enter selected board |
 | **Post Feed** | `Enter` | View discussion thread & comments |
 | **Post Feed** | `n` | Create new discussion in active board |
-| **Voting** | `u` | Upvote post (press again to reset to 0) |
-| **Voting** | `d` | Downvote post (press again to reset to 0) |
+| **Post / Comment** | `x` | Delete post or comment (confirmation modal) |
+| **Voting** | `u` | Upvote post or comment (press again to reset to 0) |
+| **Voting** | `d` | Downvote post or comment (press again to reset to 0) |
 | **Discussion** | `r` | Reply to currently highlighted comment |
 | **Discussion** | `R` | Reply directly to root post |
 | **Forms / Modals** | `Enter` / `Tab` | Advance to next field |

@@ -7,7 +7,6 @@ import (
 	"github.com/sahas/readit/internal/sanitize"
 )
 
-
 // shellDimensions calculates the width, height, and content area dimensions
 // for the centered application canvas based on terminal size.
 func (m *Model) shellDimensions() (shellWidth, shellHeight, contentWidth, contentHeight int) {
@@ -97,7 +96,7 @@ func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
 	if contextTitle != "" && contextTitle != "ReadIT" {
 		titlePart = styleTitle.Render(contextTitle)
 	} else {
-		titlePart = styleTagline.Render("the terminal forum")
+		titlePart = styleTagline.Render("The Terminal Forum")
 	}
 
 	left := logo + "  " + titlePart
@@ -128,39 +127,24 @@ func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
 	return left + strings.Repeat(" ", spaces) + right
 }
 
-// renderFooter renders the bottom status bar with navigation pills and notices.
-func (m *Model) renderFooter(contextTitle string, shortcuts [][2]string, targetWidth int) string {
+// renderFooter renders the bottom status bar with centered navigation pills and notices.
+func (m *Model) renderFooter(_ string, shortcuts [][2]string, targetWidth int) string {
 	if targetWidth <= 0 {
 		return ""
 	}
 
-	// Left: active context pill
-	badgeText := "ReadIT"
-	if contextTitle != "" && strings.HasPrefix(contextTitle, "/b/") {
-		parts := strings.Split(contextTitle, " ")
-		badgeText = parts[0]
-	}
-	leftPill := styleStatusBadge.Render(badgeText)
-	leftW := lipgloss.Width(leftPill)
-
-	// Available width for shortcuts, ensuring at least 2 spaces gap if possible
-	availWidth := max(0, targetWidth-leftW-2)
-
-	// Center/Right: key shortcuts or flash notice
+	// Center: key shortcuts or flash notice
 	var centerStr string
 	if m.flashMsg != "" {
 		centerStr = styleStatusFlash.Render(m.flashMsg)
-		if lipgloss.Width(centerStr) > availWidth {
-			centerStr = lipgloss.NewStyle().MaxWidth(availWidth).Render(centerStr)
+		if lipgloss.Width(centerStr) > targetWidth {
+			centerStr = lipgloss.NewStyle().MaxWidth(targetWidth).Render(centerStr)
 		}
 	} else {
-		centerStr = formatAdaptiveKeyPills(shortcuts, availWidth)
+		centerStr = formatAdaptiveKeyPills(shortcuts, targetWidth)
 	}
 
-	centerW := lipgloss.Width(centerStr)
-	spaces := max(1, targetWidth-leftW-centerW)
-	barContent := leftPill + strings.Repeat(" ", spaces) + centerStr
-	return styleStatusBar.Width(targetWidth).Render(barContent)
+	return lipgloss.PlaceHorizontal(targetWidth, lipgloss.Center, centerStr)
 }
 
 // formatAdaptiveKeyPills renders key shortcut pills that fit within maxAllowedWidth

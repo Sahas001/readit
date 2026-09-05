@@ -14,7 +14,7 @@ import (
 const createComment = `-- name: CreateComment :one
 INSERT INTO comments (post_id, parent_id, author_id, body)
 VALUES ($1, $2, $3, $4)
-RETURNING id, post_id, parent_id, author_id, body, score, created_at, updated_at
+RETURNING id, post_id, parent_id, author_id, body, score, created_at, updated_at, is_deleted, deleted_at
 `
 
 type CreateCommentParams struct {
@@ -41,6 +41,8 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 		&i.Score,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsDeleted,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -57,7 +59,8 @@ WITH RECURSIVE thread AS (
         c.score,
         c.created_at,
         c.updated_at,
-        u.handle AS author_handle,
+        c.is_deleted,
+        (CASE WHEN c.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
         0::INT   AS depth,
         ARRAY[c.id] AS path
     FROM comments c
@@ -76,7 +79,8 @@ WITH RECURSIVE thread AS (
         c.score,
         c.created_at,
         c.updated_at,
-        u.handle AS author_handle,
+        c.is_deleted,
+        (CASE WHEN c.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
         t.depth + 1,
         t.path || c.id
     FROM comments c
@@ -85,7 +89,7 @@ WITH RECURSIVE thread AS (
     WHERE c.post_id = $1 AND t.depth < 15
 )
 SELECT id, post_id, parent_id, author_id, body, score,
-       created_at, updated_at, author_handle, depth, path
+       created_at, updated_at, is_deleted, author_handle, depth, path
 FROM thread
 ORDER BY path, created_at ASC
 LIMIT $2
@@ -105,6 +109,7 @@ type GetCommentThreadByPostRow struct {
 	Score        int32              `json:"score"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	IsDeleted    bool               `json:"is_deleted"`
 	AuthorHandle string             `json:"author_handle"`
 	Depth        int32              `json:"depth"`
 	Path         interface{}        `json:"path"`
@@ -130,6 +135,7 @@ func (q *Queries) GetCommentThreadByPost(ctx context.Context, arg GetCommentThre
 			&i.Score,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsDeleted,
 			&i.AuthorHandle,
 			&i.Depth,
 			&i.Path,
@@ -142,4 +148,69 @@ func (q *Queries) GetCommentThreadByPost(ctx context.Context, arg GetCommentThre
 		return nil, err
 	}
 	return items, nil
+}
+
+const hardDeleteComment = `-- name: HardDeleteComment :exec
+DELETE FROM comments
+WHERE id = $1 AND author_id = $2
+`
+
+type HardDeleteCommentParams struct {
+	ID       int64 `json:"id"`
+	AuthorID int64 `json:"author_id"`
+}
+
+func (q *Queries) HardDeleteComment(ctx context.Context, arg HardDeleteCommentParams) error {
+	_, err := q.db.Exec(ctx, hardDeleteComment, arg.ID, arg.AuthorID)
+	return err
+}
+
+const hasCommentChildren = `-- name: HasCommentChildren :one
+SELECT EXISTS(
+    SELECT 1 FROM comments WHERE parent_id = $1
+)::BOOLEAN
+`
+
+func (q *Queries) HasCommentChildren(ctx context.Context, parentID pgtype.Int8) (bool, error) {
+	row := q.db.QueryRow(ctx, hasCommentChildren, parentID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const pruneTombstoneComments = `-- name: PruneTombstoneComments :exec
+WITH RECURSIVE active_ancestors AS (
+    SELECT parent_id FROM comments WHERE post_id = $1 AND is_deleted = FALSE AND parent_id IS NOT NULL
+    UNION
+    SELECT c.parent_id FROM comments c
+    JOIN active_ancestors a ON c.id = a.parent_id
+    WHERE c.parent_id IS NOT NULL
+)
+DELETE FROM comments
+WHERE comments.post_id = $1
+  AND comments.is_deleted = TRUE
+  AND comments.id NOT IN (SELECT parent_id FROM active_ancestors)
+`
+
+func (q *Queries) PruneTombstoneComments(ctx context.Context, postID int64) error {
+	_, err := q.db.Exec(ctx, pruneTombstoneComments, postID)
+	return err
+}
+
+const softDeleteComment = `-- name: SoftDeleteComment :exec
+UPDATE comments
+SET is_deleted = TRUE,
+    deleted_at = now(),
+    body = '[deleted]'
+WHERE id = $1 AND author_id = $2
+`
+
+type SoftDeleteCommentParams struct {
+	ID       int64 `json:"id"`
+	AuthorID int64 `json:"author_id"`
+}
+
+func (q *Queries) SoftDeleteComment(ctx context.Context, arg SoftDeleteCommentParams) error {
+	_, err := q.db.Exec(ctx, softDeleteComment, arg.ID, arg.AuthorID)
+	return err
 }

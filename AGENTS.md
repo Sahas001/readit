@@ -96,11 +96,14 @@ This workspace operates under a collaborative ensemble of specialized autonomous
 **Role**: TUI Quality Assurance & Visual Verification Engineer  
 **Scope**: Autonomous TUI end-to-end testing in persistent tmux sessions. Drives keyboard navigation, rasterizes terminal buffer frames into high-resolution PNG screenshots via `scripts/tui-screen.sh`, and performs multimodal visual inspections (border integrity, text clipping, contrast, alignment).
 
+### Important Operating Policies for `tui-qa-tester`:
+1. **Explicit Invocation Only**: Do **NOT** invoke `tui-qa-tester` automatically after routine UI changes, code edits, or builds. Invoke `tui-qa-tester` **ONLY** when the user explicitly requests visual verification, UI testing, or screenshot runs.
+
 ```json
 {
   "TypeName": "tui-qa-tester",
   "Role": "TUI Quality Assurance & Visual Verification Engineer",
-  "Prompt": "Set tmux window to 120x35, navigate through the board list, enter /b/general, upvote the top post, open reply dialog, capture visual PNG frames at each step, and verify layout integrity."
+  "Prompt": "Set tmux window, navigate through the board list, enter /b/general, upvote the top post, open reply dialog, capture visual PNG frames at each step, and verify layout integrity."
 }
 ```
 

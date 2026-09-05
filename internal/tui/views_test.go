@@ -82,21 +82,18 @@ func TestStatusBarFormatting(t *testing.T) {
 		user:  &db.User{Handle: "satoshi"},
 	}
 
-	// 1. Normal status bar with shortcut pills
+	// 1. Normal status bar with shortcut pills (centered, no bottom badge)
 	bar := m.renderStatusBar("/b/golang", [][2]string{
 		{"u", "upvote"},
 		{"d", "downvote"},
 		{"r", "reply"},
 	})
 
-	if !strings.Contains(bar, "/b/golang") {
-		t.Errorf("status bar missing board indicator: %s", bar)
-	}
 	if !strings.Contains(bar, "[u]") || !strings.Contains(bar, "upvote") {
 		t.Errorf("status bar missing shortcut pills: %s", bar)
 	}
-	if !strings.Contains(bar, "@satoshi") {
-		t.Errorf("status bar missing user handle: %s", bar)
+	if strings.Contains(bar, "/b/golang") {
+		t.Errorf("status bar should not contain bottom board badge: %s", bar)
 	}
 
 	// 2. Flash message overrides shortcuts

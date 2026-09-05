@@ -8,10 +8,11 @@ SELECT
     p.score,
     p.comment_count,
     p.created_at,
-    u.handle AS author_handle
+    p.is_deleted,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1
+WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -25,10 +26,11 @@ SELECT
     p.score,
     p.comment_count,
     p.created_at,
-    u.handle AS author_handle
+    p.is_deleted,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1
+WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
 ORDER BY p.score DESC, p.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -44,7 +46,8 @@ SELECT
     p.comment_count,
     p.created_at,
     p.updated_at,
-    u.handle AS author_handle,
+    p.is_deleted,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
     b.slug   AS board_slug
 FROM posts p
 JOIN users  u ON u.id = p.author_id
@@ -54,10 +57,57 @@ WHERE p.id = $1;
 -- name: CreatePost :one
 INSERT INTO posts (board_id, author_id, title, body, url)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, board_id, author_id, title, body, url, score, comment_count, created_at, updated_at;
+RETURNING *;
 
 -- name: IncrementPostCommentCount :exec
 UPDATE posts SET comment_count = comment_count + 1 WHERE id = $1;
 
 -- name: DecrementPostCommentCount :exec
 UPDATE posts SET comment_count = GREATEST(comment_count - 1, 0) WHERE id = $1;
+
+-- name: RecalculatePostCommentCount :exec
+UPDATE posts
+SET comment_count = (
+    SELECT COUNT(*)::INT FROM comments WHERE post_id = $1 AND is_deleted = FALSE
+)
+WHERE id = $1;
+
+-- name: HasPostComments :one
+SELECT EXISTS(
+    SELECT 1 FROM comments WHERE post_id = $1 AND is_deleted = FALSE
+)::BOOLEAN;
+
+-- name: HardDeletePost :exec
+DELETE FROM posts
+WHERE id = $1 AND author_id = $2;
+
+-- name: SoftDeletePost :exec
+UPDATE posts
+SET is_deleted = TRUE,
+    deleted_at = now(),
+    title = '[deleted]',
+    body = '',
+    url = ''
+WHERE id = $1 AND author_id = $2;
+
+-- name: PruneDeletedPostIfEmpty :exec
+DELETE FROM posts
+WHERE posts.id = $1
+  AND posts.is_deleted = TRUE
+  AND (
+      posts.comment_count = 0
+      OR NOT EXISTS (
+          SELECT 1 FROM comments WHERE comments.post_id = posts.id AND comments.is_deleted = FALSE
+      )
+  );
+
+-- name: PruneAllEmptyDeletedPosts :exec
+DELETE FROM posts
+WHERE is_deleted = TRUE
+  AND (
+      comment_count = 0
+      OR NOT EXISTS (
+          SELECT 1 FROM comments WHERE comments.post_id = posts.id AND comments.is_deleted = FALSE
+      )
+  );
+

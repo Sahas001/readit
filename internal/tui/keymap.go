@@ -18,6 +18,7 @@ type KeyMap struct {
 	NewPost   key.Binding
 	Reply     key.Binding
 	ReplyRoot key.Binding
+	Delete    key.Binding
 	Submit    key.Binding
 	Help      key.Binding
 }
@@ -80,6 +81,10 @@ func DefaultKeyMap() KeyMap {
 		ReplyRoot: key.NewBinding(
 			key.WithKeys("R"),
 			key.WithHelp("R", "reply to post"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "delete"),
 		),
 		Submit: key.NewBinding(
 			key.WithKeys("ctrl+s"),

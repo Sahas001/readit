@@ -12,7 +12,8 @@ WITH RECURSIVE thread AS (
         c.score,
         c.created_at,
         c.updated_at,
-        u.handle AS author_handle,
+        c.is_deleted,
+        (CASE WHEN c.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
         0::INT   AS depth,
         ARRAY[c.id] AS path
     FROM comments c
@@ -31,7 +32,8 @@ WITH RECURSIVE thread AS (
         c.score,
         c.created_at,
         c.updated_at,
-        u.handle AS author_handle,
+        c.is_deleted,
+        (CASE WHEN c.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
         t.depth + 1,
         t.path || c.id
     FROM comments c
@@ -40,7 +42,7 @@ WITH RECURSIVE thread AS (
     WHERE c.post_id = $1 AND t.depth < 15
 )
 SELECT id, post_id, parent_id, author_id, body, score,
-       created_at, updated_at, author_handle, depth, path
+       created_at, updated_at, is_deleted, author_handle, depth, path
 FROM thread
 ORDER BY path, created_at ASC
 LIMIT $2;
@@ -48,4 +50,33 @@ LIMIT $2;
 -- name: CreateComment :one
 INSERT INTO comments (post_id, parent_id, author_id, body)
 VALUES ($1, $2, $3, $4)
-RETURNING id, post_id, parent_id, author_id, body, score, created_at, updated_at;
+RETURNING *;
+
+-- name: HasCommentChildren :one
+SELECT EXISTS(
+    SELECT 1 FROM comments WHERE parent_id = $1
+)::BOOLEAN;
+
+-- name: HardDeleteComment :exec
+DELETE FROM comments
+WHERE id = $1 AND author_id = $2;
+
+-- name: SoftDeleteComment :exec
+UPDATE comments
+SET is_deleted = TRUE,
+    deleted_at = now(),
+    body = '[deleted]'
+WHERE id = $1 AND author_id = $2;
+
+-- name: PruneTombstoneComments :exec
+WITH RECURSIVE active_ancestors AS (
+    SELECT parent_id FROM comments WHERE post_id = $1 AND is_deleted = FALSE AND parent_id IS NOT NULL
+    UNION
+    SELECT c.parent_id FROM comments c
+    JOIN active_ancestors a ON c.id = a.parent_id
+    WHERE c.parent_id IS NOT NULL
+)
+DELETE FROM comments
+WHERE comments.post_id = $1
+  AND comments.is_deleted = TRUE
+  AND comments.id NOT IN (SELECT parent_id FROM active_ancestors);

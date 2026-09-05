@@ -14,7 +14,7 @@ import (
 const createPost = `-- name: CreatePost :one
 INSERT INTO posts (board_id, author_id, title, body, url)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, board_id, author_id, title, body, url, score, comment_count, created_at, updated_at
+RETURNING id, board_id, author_id, title, body, url, score, comment_count, created_at, updated_at, is_deleted, deleted_at
 `
 
 type CreatePostParams struct {
@@ -45,6 +45,8 @@ func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, e
 		&i.CommentCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsDeleted,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -70,7 +72,8 @@ SELECT
     p.comment_count,
     p.created_at,
     p.updated_at,
-    u.handle AS author_handle,
+    p.is_deleted,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
     b.slug   AS board_slug
 FROM posts p
 JOIN users  u ON u.id = p.author_id
@@ -89,6 +92,7 @@ type GetPostByIDRow struct {
 	CommentCount int32              `json:"comment_count"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	IsDeleted    bool               `json:"is_deleted"`
 	AuthorHandle string             `json:"author_handle"`
 	BoardSlug    string             `json:"board_slug"`
 }
@@ -107,10 +111,39 @@ func (q *Queries) GetPostByID(ctx context.Context, id int64) (GetPostByIDRow, er
 		&i.CommentCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsDeleted,
 		&i.AuthorHandle,
 		&i.BoardSlug,
 	)
 	return i, err
+}
+
+const hardDeletePost = `-- name: HardDeletePost :exec
+DELETE FROM posts
+WHERE id = $1 AND author_id = $2
+`
+
+type HardDeletePostParams struct {
+	ID       int64 `json:"id"`
+	AuthorID int64 `json:"author_id"`
+}
+
+func (q *Queries) HardDeletePost(ctx context.Context, arg HardDeletePostParams) error {
+	_, err := q.db.Exec(ctx, hardDeletePost, arg.ID, arg.AuthorID)
+	return err
+}
+
+const hasPostComments = `-- name: HasPostComments :one
+SELECT EXISTS(
+    SELECT 1 FROM comments WHERE post_id = $1 AND is_deleted = FALSE
+)::BOOLEAN
+`
+
+func (q *Queries) HasPostComments(ctx context.Context, postID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, hasPostComments, postID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const incrementPostCommentCount = `-- name: IncrementPostCommentCount :exec
@@ -132,10 +165,11 @@ SELECT
     p.score,
     p.comment_count,
     p.created_at,
-    u.handle AS author_handle
+    p.is_deleted,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1
+WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -155,6 +189,7 @@ type ListPostsByBoardNewRow struct {
 	Score        int32              `json:"score"`
 	CommentCount int32              `json:"comment_count"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	IsDeleted    bool               `json:"is_deleted"`
 	AuthorHandle string             `json:"author_handle"`
 }
 
@@ -176,6 +211,7 @@ func (q *Queries) ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardN
 			&i.Score,
 			&i.CommentCount,
 			&i.CreatedAt,
+			&i.IsDeleted,
 			&i.AuthorHandle,
 		); err != nil {
 			return nil, err
@@ -198,10 +234,11 @@ SELECT
     p.score,
     p.comment_count,
     p.created_at,
-    u.handle AS author_handle
+    p.is_deleted,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1
+WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
 ORDER BY p.score DESC, p.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -221,6 +258,7 @@ type ListPostsByBoardTopRow struct {
 	Score        int32              `json:"score"`
 	CommentCount int32              `json:"comment_count"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	IsDeleted    bool               `json:"is_deleted"`
 	AuthorHandle string             `json:"author_handle"`
 }
 
@@ -242,6 +280,7 @@ func (q *Queries) ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardT
 			&i.Score,
 			&i.CommentCount,
 			&i.CreatedAt,
+			&i.IsDeleted,
 			&i.AuthorHandle,
 		); err != nil {
 			return nil, err
@@ -252,4 +291,70 @@ func (q *Queries) ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardT
 		return nil, err
 	}
 	return items, nil
+}
+
+const pruneAllEmptyDeletedPosts = `-- name: PruneAllEmptyDeletedPosts :exec
+DELETE FROM posts
+WHERE is_deleted = TRUE
+  AND (
+      comment_count = 0
+      OR NOT EXISTS (
+          SELECT 1 FROM comments WHERE comments.post_id = posts.id AND comments.is_deleted = FALSE
+      )
+  )
+`
+
+func (q *Queries) PruneAllEmptyDeletedPosts(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, pruneAllEmptyDeletedPosts)
+	return err
+}
+
+const pruneDeletedPostIfEmpty = `-- name: PruneDeletedPostIfEmpty :exec
+DELETE FROM posts
+WHERE posts.id = $1
+  AND posts.is_deleted = TRUE
+  AND (
+      posts.comment_count = 0
+      OR NOT EXISTS (
+          SELECT 1 FROM comments WHERE comments.post_id = posts.id AND comments.is_deleted = FALSE
+      )
+  )
+`
+
+func (q *Queries) PruneDeletedPostIfEmpty(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, pruneDeletedPostIfEmpty, id)
+	return err
+}
+
+const recalculatePostCommentCount = `-- name: RecalculatePostCommentCount :exec
+UPDATE posts
+SET comment_count = (
+    SELECT COUNT(*)::INT FROM comments WHERE post_id = $1 AND is_deleted = FALSE
+)
+WHERE id = $1
+`
+
+func (q *Queries) RecalculatePostCommentCount(ctx context.Context, postID int64) error {
+	_, err := q.db.Exec(ctx, recalculatePostCommentCount, postID)
+	return err
+}
+
+const softDeletePost = `-- name: SoftDeletePost :exec
+UPDATE posts
+SET is_deleted = TRUE,
+    deleted_at = now(),
+    title = '[deleted]',
+    body = '',
+    url = ''
+WHERE id = $1 AND author_id = $2
+`
+
+type SoftDeletePostParams struct {
+	ID       int64 `json:"id"`
+	AuthorID int64 `json:"author_id"`
+}
+
+func (q *Queries) SoftDeletePost(ctx context.Context, arg SoftDeletePostParams) error {
+	_, err := q.db.Exec(ctx, softDeletePost, arg.ID, arg.AuthorID)
+	return err
 }

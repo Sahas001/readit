@@ -62,7 +62,7 @@ func (m *Model) viewBoardList() string {
 	heroBanner := renderHeroBanner(m.animTick, contentWidth)
 	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, heroBanner) + "\n\n")
 
-	tagline := styleTagline.Render("A Reddit-style forum in your terminal  •  SSH Edition")
+	tagline := styleTagline.Render("A simple and lightweight forum in your terminal")
 	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, tagline) + "\n\n")
 
 	// 2. Boards Directory Panel
@@ -179,14 +179,21 @@ func (m *Model) viewPostList() string {
 			// Content column
 			safeTitle := sanitize.SingleLine(post.Title)
 			var titleView string
-			if isSelected {
+			if post.IsDeleted {
+				titleView = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted by author]")
+			} else if isSelected {
 				titleView = stylePostTitleSelected.Render(safeTitle)
 			} else {
 				titleView = stylePostTitle.Render(safeTitle)
 			}
 
 			timeStr := relativeTime(post.CreatedAt.Time)
-			authorStr := "@" + sanitize.SingleLine(post.AuthorHandle)
+			var authorStr string
+			if post.IsDeleted {
+				authorStr = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
+			} else {
+				authorStr = "@" + sanitize.SingleLine(post.AuthorHandle)
+			}
 			commentsStr := fmt.Sprintf("%d comments", post.CommentCount)
 
 			metaLine := fmt.Sprintf("%s • %s • %s",
@@ -194,7 +201,7 @@ func (m *Model) viewPostList() string {
 				styleMeta.Render(timeStr),
 				styleMeta.Render(commentsStr),
 			)
-			if post.Url != "" {
+			if !post.IsDeleted && post.Url != "" {
 				metaLine += " • " + styleLinkBadge.Render("link")
 			}
 
@@ -217,6 +224,7 @@ func (m *Model) viewPostList() string {
 		{"enter", "view"},
 		{"u/d", "vote"},
 		{"n", "new post"},
+		{"x", "delete"},
 		{"g/G", "top/end"},
 		{"esc", "boards"},
 		{"q", "quit"},
@@ -237,6 +245,7 @@ func (m *Model) viewPostDetail() string {
 		{"r", "reply"},
 		{"R", "reply root"},
 		{"u/d", "vote"},
+		{"x", "delete"},
 		{"g/G", "top/end"},
 		{"esc", "back"},
 		{"q", "quit"},
@@ -265,10 +274,25 @@ func (m *Model) renderPostDetailContent() string {
 		styleVoteDown.Render("▼")
 
 	titleStr := sanitize.SingleLine(p.Title)
-	title := styleTitle.Copy().Foreground(currentTheme.Primary).Render(titleStr)
-	author := styleAuthor.Render("@" + sanitize.SingleLine(p.AuthorHandle))
+	var title string
+	if p.IsDeleted {
+		title = styleTitle.Copy().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
+	} else {
+		title = styleTitle.Copy().Foreground(currentTheme.Primary).Render(titleStr)
+	}
+
+	var author string
+	if p.IsDeleted {
+		author = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
+	} else {
+		author = styleAuthor.Render("@" + sanitize.SingleLine(p.AuthorHandle))
+	}
+
 	timeStr := styleSubtitle.Render(relativeTime(p.CreatedAt.Time))
 	meta := fmt.Sprintf("Posted by %s • %s", author, timeStr)
+	if p.IsDeleted {
+		meta += " • " + lipgloss.NewStyle().Foreground(currentTheme.Upvote).Italic(true).Render("(deleted)")
+	}
 
 	if m.commentCursor == -1 {
 		selectedIndicator := lipgloss.NewStyle().Foreground(currentTheme.Accent).Italic(true).Render("  ◄ post selected (r to reply)")
@@ -276,7 +300,7 @@ func (m *Model) renderPostDetailContent() string {
 	}
 
 	contentBox := title + "\n" + meta
-	if p.Url != "" {
+	if !p.IsDeleted && p.Url != "" {
 		urlStr := styleSubtitle.Copy().Foreground(currentTheme.Accent).Render("Link: " + sanitize.SingleLine(p.Url))
 		contentBox += "\n" + urlStr
 	}
@@ -285,10 +309,14 @@ func (m *Model) renderPostDetailContent() string {
 	b.WriteString(headerRow + "\n\n")
 
 	// 2. Post Body with wrapping
-	if p.Body != "" {
+	if !p.IsDeleted && p.Body != "" {
 		bodyWidth := max(20, contentWidth-6)
 		bodyStyle := stylePostBody.Copy().Width(bodyWidth)
 		b.WriteString(bodyStyle.Render(sanitize.Text(p.Body)) + "\n")
+	} else if p.IsDeleted {
+		bodyWidth := max(20, contentWidth-6)
+		bodyStyle := lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Width(bodyWidth)
+		b.WriteString(bodyStyle.Render("[This post has been deleted by author]") + "\n")
 	}
 	b.WriteString("\n" + styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n")
 
@@ -316,7 +344,7 @@ func (m *Model) renderPostDetailContent() string {
 		}
 
 		isSelected := (i == m.commentCursor)
-		isOP := (m.currentPost != nil && c.AuthorHandle == m.currentPost.AuthorHandle)
+		isOP := (m.currentPost != nil && !c.IsDeleted && !m.currentPost.IsDeleted && c.AuthorHandle == m.currentPost.AuthorHandle)
 
 		var opBadge string
 		if isOP {
@@ -331,12 +359,20 @@ func (m *Model) renderPostDetailContent() string {
 		if isSelected {
 			indicator = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("▌ ")
 			branch = styleSelectedBranch.Render(branchGlyph)
-			cAuthor = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("@" + sanitize.SingleLine(c.AuthorHandle))
+			if c.IsDeleted {
+				cAuthor = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
+			} else {
+				cAuthor = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("@" + sanitize.SingleLine(c.AuthorHandle))
+			}
 			selPill = lipgloss.NewStyle().Foreground(currentTheme.Accent).Italic(true).Render("  ◄ selected (r to reply)")
 		} else {
 			indicator = "  "
 			branch = styleBranch.Render(branchGlyph)
-			cAuthor = styleAuthor.Render("@" + sanitize.SingleLine(c.AuthorHandle))
+			if c.IsDeleted {
+				cAuthor = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
+			} else {
+				cAuthor = styleAuthor.Render("@" + sanitize.SingleLine(c.AuthorHandle))
+			}
 			selPill = ""
 		}
 
@@ -346,10 +382,20 @@ func (m *Model) renderPostDetailContent() string {
 		b.WriteString(fmt.Sprintf("%s%s%s%s%s  %s  %s%s\n", indicator, indent, branch, cAuthor, opBadge, cScore, cTime, selPill))
 
 		// Indent and wrap comment body lines
-		cBody := sanitize.Text(c.Body)
+		var cBody string
+		if c.IsDeleted {
+			cBody = "[deleted]"
+		} else {
+			cBody = sanitize.Text(c.Body)
+		}
 		indentLen := depth*2 + 6
 		availCommentWidth := max(20, contentWidth-indentLen)
-		wrappedBody := lipgloss.NewStyle().Width(availCommentWidth).Render(cBody)
+		var wrappedBody string
+		if c.IsDeleted {
+			wrappedBody = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Width(availCommentWidth).Render(cBody)
+		} else {
+			wrappedBody = lipgloss.NewStyle().Width(availCommentWidth).Render(cBody)
+		}
 		bodyLines := strings.Split(wrappedBody, "\n")
 
 		var bodyPrefix string
@@ -554,12 +600,7 @@ func (m *Model) renderDockedViewWithCenteredContent(header, card, statusBar stri
 }
 
 // renderStatusBar preserved for status bar helper tests.
-func (m *Model) renderStatusBar(left string, shortcuts [][2]string) string {
-	if left == "" {
-		left = "ReadIT"
-	}
-	leftBadge := styleStatusBadge.Render(left)
-
+func (m *Model) renderStatusBar(_ string, shortcuts [][2]string) string {
 	var centerStr string
 	if m.flashMsg != "" {
 		centerStr = styleStatusFlash.Render(m.flashMsg)
@@ -567,39 +608,16 @@ func (m *Model) renderStatusBar(left string, shortcuts [][2]string) string {
 		centerStr = formatKeyPills(shortcuts)
 	}
 
-	var userStr string
-	if m.user != nil {
-		userStr = lipgloss.NewStyle().Foreground(currentTheme.Accent).Bold(true).Padding(0, 1).Render("@" + sanitize.SingleLine(m.user.Handle))
-	}
-
 	w := m.width
 	if w <= 0 {
-		if userStr != "" {
-			return leftBadge + "  " + centerStr + "  " + userStr
-		}
-		return leftBadge + "  " + centerStr
+		return centerStr
 	}
 
-	lW := lipgloss.Width(leftBadge)
-	rW := lipgloss.Width(userStr)
-	cW := lipgloss.Width(centerStr)
-
-	if w < lW+cW+rW+4 {
-		userStr = ""
-		rW = 0
-		if w < lW+cW+4 {
-			maxCW := max(0, w-lW-2)
-			centerStr = formatAdaptiveKeyPills(shortcuts, maxCW)
-			cW = lipgloss.Width(centerStr)
-		}
+	if w < lipgloss.Width(centerStr) {
+		centerStr = formatAdaptiveKeyPills(shortcuts, w)
 	}
 
-	totalSpaces := max(0, w-lW-cW-rW)
-	spaceLeft := totalSpaces / 2
-	spaceRight := totalSpaces - spaceLeft
-
-	barContent := leftBadge + strings.Repeat(" ", spaceLeft) + centerStr + strings.Repeat(" ", spaceRight) + userStr
-	return styleStatusBar.Width(w).Render(barContent)
+	return lipgloss.PlaceHorizontal(w, lipgloss.Center, centerStr)
 }
 
 func formatKeyPills(pairs [][2]string) string {
@@ -636,4 +654,87 @@ func relativeTime(t time.Time) string {
 	default:
 		return t.Format("Jan 02, 2006")
 	}
+}
+
+func (m *Model) viewDeleteConfirm() string {
+	_, _, contentWidth, _ := m.shellDimensions()
+	if m.pendingDelete == nil {
+		return m.centeredView("No pending item to delete.")
+	}
+
+	target := m.pendingDelete
+	cardWidth := min(64, max(38, contentWidth-4))
+	innerContentWidth := max(24, cardWidth-6)
+
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(currentTheme.Negative)
+
+	itemStyle := lipgloss.NewStyle().
+		Foreground(currentTheme.Text).
+		Bold(true).
+		Width(innerContentWidth)
+
+	descStyle := lipgloss.NewStyle().
+		Foreground(currentTheme.TextMuted).
+		Width(innerContentWidth)
+
+	warnStyle := lipgloss.NewStyle().
+		Foreground(currentTheme.Upvote).
+		Width(innerContentWidth)
+
+	safeItemSnippet := sanitize.SingleLine(target.titleOrBody)
+	if len(safeItemSnippet) > innerContentWidth*2 {
+		safeItemSnippet = safeItemSnippet[:innerContentWidth*2-3] + "..."
+	}
+
+	if target.targetType == deleteTargetPost {
+		if target.hasDependents {
+			b.WriteString(titleStyle.Render("⚠️  Delete Discussion?") + "\n\n")
+			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
+			b.WriteString(warnStyle.Render(fmt.Sprintf("This post has %d active comments. The title, body, and author will be scrubbed to [deleted] to preserve thread continuity.", target.commentCount)) + "\n\n")
+		} else {
+			b.WriteString(titleStyle.Render("🗑  Permanently Delete Discussion?") + "\n\n")
+			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
+			b.WriteString(descStyle.Render("This post has no comments. It will be completely removed from the database.") + "\n\n")
+		}
+	} else {
+		if target.hasDependents {
+			b.WriteString(titleStyle.Render("⚠️  Delete Comment?") + "\n\n")
+			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
+			b.WriteString(warnStyle.Render("This comment has active replies. Its text and author will be replaced with [deleted] to preserve the conversation thread.") + "\n\n")
+		} else {
+			b.WriteString(titleStyle.Render("🗑  Permanently Delete Comment?") + "\n\n")
+			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
+			b.WriteString(descStyle.Render("This comment has no replies. It will be completely removed from the database.") + "\n\n")
+		}
+	}
+
+	b.WriteString(styleRule.Render(strings.Repeat("─", innerContentWidth)) + "\n\n")
+
+	btnConfirm := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(currentTheme.Negative).
+		Padding(0, 2).
+		Render("[y] Confirm Delete")
+
+	btnCancel := lipgloss.NewStyle().
+		Foreground(currentTheme.TextMuted).
+		Padding(0, 2).
+		Render("[n / esc] Cancel")
+
+	btnRow := lipgloss.JoinHorizontal(lipgloss.Center, btnConfirm, "  ", btnCancel)
+	b.WriteString(lipgloss.PlaceHorizontal(innerContentWidth, lipgloss.Center, btnRow))
+
+	card := styleModalCard.Width(cardWidth).Render(b.String())
+
+	shortcuts := [][2]string{
+		{"y", "confirm delete"},
+		{"n/esc", "cancel"},
+	}
+
+	return m.renderAppShell("Confirm Deletion", lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
 }
