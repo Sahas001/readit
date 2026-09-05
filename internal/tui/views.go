@@ -9,11 +9,12 @@ import (
 	"github.com/sahas/readit/internal/sanitize"
 )
 
-const logo = ` ____                _ ___ _____
-|  _ \ ___  __ _  __| |_ _|_   _|
-| |_) / _ \/ _` + "`" + ` |/ _` + "`" + ` || |  | |
-|  _ <  __/ (_| | (_| || |  | |
-|_| \_\___|\__,_|\__,_|___| |_|`
+const logo = `██████╗ ███████╗ █████╗ ██████╗ ██╗████████╗
+██╔══██╗██╔════╝██╔══██╗██╔══██╗██║╚══██╔══╝
+██████╔╝█████╗  ███████║██║  ██║██║   ██║   
+██╔══██╗██╔══╝  ██╔══██║██║  ██║██║   ██║   
+██║  ██║███████╗██║  ██║██████╔╝██║   ██║   
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚═╝   ╚═╝`
 
 func (m *Model) viewLoading() string {
 	var b strings.Builder
@@ -57,9 +58,9 @@ func (m *Model) viewBoardList() string {
 
 	var b strings.Builder
 
-	// 1. Centered Hero Branding
-	logoText := styleLogo.Render(logo)
-	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, logoText) + "\n\n")
+	// 1. Centered Hero Branding: Spinning Earth + Shining ReadIT Logo
+	heroBanner := renderHeroBanner(m.animTick, contentWidth)
+	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, heroBanner) + "\n\n")
 
 	tagline := styleTagline.Render("A Reddit-style forum in your terminal  •  SSH Edition")
 	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, tagline) + "\n\n")

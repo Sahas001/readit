@@ -432,10 +432,41 @@ func TestAdaptiveKeyPillsNeverTruncatesMidWord(t *testing.T) {
 		}
 	}
 }
+func TestSpinningEarthAndShiningLogo(t *testing.T) {
+	// 1. Verify Earth animation frames
+	for tick := 0; tick < len(earthFrames)*2; tick++ {
+		earth := renderEarthFrame(tick)
+		if earth == "" {
+			t.Fatalf("renderEarthFrame(%d) returned empty string", tick)
+		}
+		lines := strings.Split(earth, "\n")
+		if len(lines) != 6 {
+			t.Errorf("renderEarthFrame(%d) produced %d lines, want 6", tick, len(lines))
+		}
+	}
 
+	// 2. Verify Shining Logo across a full shine cycle
+	for tick := 0; tick < 70; tick++ {
+		shined := renderShiningLogo(tick)
+		if shined == "" {
+			t.Fatalf("renderShiningLogo(%d) returned empty string", tick)
+		}
+		lines := strings.Split(shined, "\n")
+		if len(lines) != 6 {
+			t.Errorf("renderShiningLogo(%d) produced %d lines, want 6", tick, len(lines))
+		}
+	}
 
+	// 3. Verify Hero Banner composition responsive behavior
+	wideBanner := renderHeroBanner(5, 80)
+	if wideBanner == "" {
+		t.Errorf("renderHeroBanner on wide terminal returned empty string")
+	}
 
-
-
+	narrowBanner := renderHeroBanner(5, 50)
+	if narrowBanner == "" {
+		t.Errorf("renderHeroBanner on narrow terminal returned empty string")
+	}
+}
 
 

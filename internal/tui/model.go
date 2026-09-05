@@ -75,8 +75,9 @@ type Model struct {
 	commentCursor      int
 	commentLineOffsets []int
 
-	// Micro-interactions.
+	// Micro-interactions and animations.
 	flashMsg string
+	animTick int // Animation tick counter for Earth rotation and logo shine.
 
 	// Content creation: New Post.
 	titleInput    textinput.Model
@@ -135,6 +136,9 @@ type postCreatedMsg struct {
 type commentCreatedMsg struct {
 	comment db.Comment
 }
+
+// animTickMsg drives the Earth rotation and logo shine animation on the landing page.
+type animTickMsg struct{}
 
 // errMsg wraps an error for the Update loop.
 type errMsg struct{ err error }
@@ -242,7 +246,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.boards = msg.boards
 		m.currentView = viewBoardList
 		m.boardCursor = 0
-		return m, nil
+		m.animTick = 0
+		return m, m.animTickCmd()
 	case postsLoadedMsg:
 		prevCursor := m.postCursor
 		m.posts = msg.posts
@@ -319,6 +324,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flashMsg = "✓ Reply posted!"
 		m.currentView = viewPostDetail
 		return m, m.loadPostDetailCmd(msg.comment.PostID)
+	case animTickMsg:
+		// Only advance animation while on the landing page.
+		if m.currentView == viewBoardList {
+			m.animTick++
+			return m, m.animTickCmd()
+		}
+		return m, nil
 	case errMsg:
 		m.err = msg.err
 		m.currentView = viewError
@@ -454,6 +466,13 @@ func (m *Model) loadBoardsCmd() tea.Cmd {
 	}
 }
 
+// animTickCmd returns a command that sends an animTickMsg after the animation interval.
+func (m *Model) animTickCmd() tea.Cmd {
+	return tea.Tick(animationInterval, func(time.Time) tea.Msg {
+		return animTickMsg{}
+	})
+}
+
 func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -512,7 +531,7 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, tea.Quit
 		case msg.String() == "esc":
 			m.currentView = viewBoardList
-			return m, nil
+			return m, m.animTickCmd()
 		case msg.String() == "k" || msg.String() == "up":
 			if m.postCursor > 0 {
 				m.postCursor--
