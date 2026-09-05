@@ -404,6 +404,35 @@ func TestVoteRemovalAndStatePreservation(t *testing.T) {
 	}
 }
 
+func TestAdaptiveKeyPillsNeverTruncatesMidWord(t *testing.T) {
+	shortcuts := [][2]string{
+		{"j/k", "move"},
+		{"enter", "view"},
+		{"u/d", "vote"},
+		{"n", "new post"},
+		{"g/G", "top/end"},
+		{"esc", "boards"},
+		{"q", "quit"},
+	}
+
+	widthsToTest := []int{120, 100, 97, 85, 70, 60, 50, 40, 20}
+	for _, w := range widthsToTest {
+		res := formatAdaptiveKeyPills(shortcuts, w)
+		wActual := lipgloss.Width(res)
+		if wActual > w {
+			t.Errorf("width %d: rendered width %d exceeded max %d: %q", w, wActual, w, res)
+		}
+
+		// Must never produce broken truncated words like "[q] qu"
+		if strings.Contains(res, "[q] qu") && !strings.Contains(res, "[q] quit") {
+			t.Errorf("width %d: [q] was truncated to 'qu': %q", w, res)
+		}
+		if strings.Contains(res, "[esc] boa") && !strings.Contains(res, "[esc] boards") {
+			t.Errorf("width %d: [esc] was truncated to 'boa': %q", w, res)
+		}
+	}
+}
+
 
 
 

@@ -111,10 +111,9 @@ func (m *Model) viewBoardList() string {
 	b.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, boardCard))
 
 	shortcuts := [][2]string{
-		{"↑/k", "up"},
-		{"↓/j", "down"},
-		{"g/G", "top/bottom"},
+		{"j/k", "move"},
 		{"enter", "enter board"},
+		{"g/G", "top/end"},
 		{"q", "quit"},
 	}
 
@@ -213,12 +212,11 @@ func (m *Model) viewPostList() string {
 	}
 
 	shortcuts := [][2]string{
-		{"↑/k", "up"},
-		{"↓/j", "down"},
-		{"g/G", "top/end"},
+		{"j/k", "move"},
 		{"enter", "view"},
 		{"u/d", "vote"},
 		{"n", "new post"},
+		{"g/G", "top/end"},
 		{"esc", "boards"},
 		{"q", "quit"},
 	}
@@ -235,9 +233,9 @@ func (m *Model) viewPostDetail() string {
 
 	shortcuts := [][2]string{
 		{"j/k", "navigate"},
-		{"u/d", "vote"},
 		{"r", "reply"},
-		{"R", "reply to post"},
+		{"R", "reply root"},
+		{"u/d", "vote"},
 		{"g/G", "top/end"},
 		{"esc", "back"},
 		{"q", "quit"},
@@ -590,7 +588,7 @@ func (m *Model) renderStatusBar(left string, shortcuts [][2]string) string {
 		rW = 0
 		if w < lW+cW+4 {
 			maxCW := max(0, w-lW-2)
-			centerStr = lipgloss.NewStyle().MaxWidth(maxCW).Render(centerStr)
+			centerStr = formatAdaptiveKeyPills(shortcuts, maxCW)
 			cW = lipgloss.Width(centerStr)
 		}
 	}

@@ -130,6 +130,10 @@ func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
 
 // renderFooter renders the bottom status bar with navigation pills and notices.
 func (m *Model) renderFooter(contextTitle string, shortcuts [][2]string, targetWidth int) string {
+	if targetWidth <= 0 {
+		return ""
+	}
+
 	// Left: active context pill
 	badgeText := "ReadIT"
 	if contextTitle != "" && strings.HasPrefix(contextTitle, "/b/") {
@@ -137,26 +141,85 @@ func (m *Model) renderFooter(contextTitle string, shortcuts [][2]string, targetW
 		badgeText = parts[0]
 	}
 	leftPill := styleStatusBadge.Render(badgeText)
+	leftW := lipgloss.Width(leftPill)
 
-	// Center: key shortcuts or flash notice
+	// Available width for shortcuts, ensuring at least 2 spaces gap if possible
+	availWidth := max(0, targetWidth-leftW-2)
+
+	// Center/Right: key shortcuts or flash notice
 	var centerStr string
 	if m.flashMsg != "" {
 		centerStr = styleStatusFlash.Render(m.flashMsg)
+		if lipgloss.Width(centerStr) > availWidth {
+			centerStr = lipgloss.NewStyle().MaxWidth(availWidth).Render(centerStr)
+		}
 	} else {
-		centerStr = formatKeyPills(shortcuts)
+		centerStr = formatAdaptiveKeyPills(shortcuts, availWidth)
 	}
 
-	leftW := lipgloss.Width(leftPill)
 	centerW := lipgloss.Width(centerStr)
-
-	// Handle narrow width gracefully
-	if targetWidth < leftW+centerW+4 {
-		maxCW := max(0, targetWidth-leftW-2)
-		centerStr = lipgloss.NewStyle().MaxWidth(maxCW).Render(centerStr)
-		centerW = lipgloss.Width(centerStr)
-	}
-
 	spaces := max(1, targetWidth-leftW-centerW)
 	barContent := leftPill + strings.Repeat(" ", spaces) + centerStr
 	return styleStatusBar.Width(targetWidth).Render(barContent)
+}
+
+// formatAdaptiveKeyPills renders key shortcut pills that fit within maxAllowedWidth
+// without ever clipping or truncating a pill mid-text (preventing issues like "[q] qu").
+func formatAdaptiveKeyPills(shortcuts [][2]string, maxAllowedWidth int) string {
+	if len(shortcuts) == 0 || maxAllowedWidth <= 0 {
+		return ""
+	}
+
+	// 1. Try rendering all shortcuts
+	full := formatKeyPills(shortcuts)
+	if lipgloss.Width(full) <= maxAllowedWidth {
+		return full
+	}
+
+	// 2. Progressive reduction strategy:
+	// Stage A: Omit secondary jump keys ("g/G")
+	filteredA := make([][2]string, 0, len(shortcuts))
+	for _, s := range shortcuts {
+		if s[0] != "g/G" {
+			filteredA = append(filteredA, s)
+		}
+	}
+	fStrA := formatKeyPills(filteredA)
+	if lipgloss.Width(fStrA) <= maxAllowedWidth {
+		return fStrA
+	}
+
+	// Stage B: Omit vote keys ("u/d")
+	filteredB := make([][2]string, 0, len(filteredA))
+	for _, s := range filteredA {
+		if s[0] != "u/d" {
+			filteredB = append(filteredB, s)
+		}
+	}
+	fStrB := formatKeyPills(filteredB)
+	if lipgloss.Width(fStrB) <= maxAllowedWidth {
+		return fStrB
+	}
+
+	// Stage C: Iteratively drop middle items, preserving the final action (e.g. [q] quit)
+	curr := filteredB
+	for len(curr) > 2 {
+		// Drop the item right before the last one (keep first and last)
+		dropIdx := len(curr) - 2
+		curr = append(curr[:dropIdx], curr[dropIdx+1:]...)
+		cStr := formatKeyPills(curr)
+		if lipgloss.Width(cStr) <= maxAllowedWidth {
+			return cStr
+		}
+	}
+
+	// Stage D: Only the final critical shortcut (e.g. [q] quit)
+	if len(shortcuts) > 0 {
+		last := formatKeyPills([][2]string{shortcuts[len(shortcuts)-1]})
+		if lipgloss.Width(last) <= maxAllowedWidth {
+			return last
+		}
+	}
+
+	return ""
 }
