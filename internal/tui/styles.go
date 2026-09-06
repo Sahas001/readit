@@ -95,20 +95,19 @@ var (
 				Bold(true)
 
 	stylePostCardSelected = lipgloss.NewStyle().
-				Background(currentTheme.CardBgHover).
 				BorderLeft(true).
 				BorderStyle(lipgloss.ThickBorder()).
 				BorderForeground(currentTheme.Primary).
-				Padding(0, 1)
+				PaddingLeft(1)
 
 	stylePostCardNormal = lipgloss.NewStyle().
-				Padding(0, 1).
-				PaddingLeft(2)
+				BorderLeft(true).
+				BorderStyle(lipgloss.Border{Left: " "}).
+				PaddingLeft(1)
 
 	styleLinkBadge = lipgloss.NewStyle().
 			Foreground(currentTheme.Accent).
-			Background(currentTheme.CardBg).
-			Padding(0, 1)
+			Bold(true)
 
 	styleSortPill = lipgloss.NewStyle().
 			Foreground(currentTheme.TextDim).

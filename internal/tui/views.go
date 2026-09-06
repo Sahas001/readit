@@ -208,14 +208,14 @@ func (m *Model) viewPostList() string {
 			contentBox := titleView + "\n" + metaLine
 			postRow := lipgloss.JoinHorizontal(lipgloss.Top, voteCol, "   ", contentBox)
 
+			cardWidth := max(10, contentWidth-1)
+			var postCard string
 			if isSelected {
-				cardWidth := contentWidth - 2
-				postCard := stylePostCardSelected.Width(cardWidth).Render(postRow)
-				content.WriteString(postCard + "\n\n")
+				postCard = stylePostCardSelected.Width(cardWidth).Render(postRow)
 			} else {
-				postCard := stylePostCardNormal.Render(postRow)
-				content.WriteString(postCard + "\n\n")
+				postCard = stylePostCardNormal.Width(cardWidth).Render(postRow)
 			}
+			content.WriteString(postCard + "\n\n")
 		}
 	}
 
@@ -308,17 +308,19 @@ func (m *Model) renderPostDetailContent() string {
 	headerRow := lipgloss.JoinHorizontal(lipgloss.Top, voteCol, "   ", contentBox)
 	b.WriteString(headerRow + "\n\n")
 
-	// 2. Post Body with wrapping
-	if !p.IsDeleted && p.Body != "" {
-		bodyWidth := max(20, contentWidth-6)
-		bodyStyle := stylePostBody.Copy().Width(bodyWidth)
-		b.WriteString(bodyStyle.Render(sanitize.Text(p.Body)) + "\n")
+	// 2. Post Body with Markdown Rendering
+	if !p.IsDeleted && strings.TrimSpace(p.Body) != "" {
+		bodyWidth := max(20, contentWidth-4)
+		renderedBody := renderMarkdown(p.Body, bodyWidth)
+		if renderedBody != "" {
+			b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Render(renderedBody) + "\n\n")
+		}
 	} else if p.IsDeleted {
-		bodyWidth := max(20, contentWidth-6)
-		bodyStyle := lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Width(bodyWidth)
-		b.WriteString(bodyStyle.Render("[This post has been deleted by author]") + "\n")
+		bodyWidth := max(20, contentWidth-4)
+		bodyStyle := lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).PaddingLeft(2).Width(bodyWidth)
+		b.WriteString(bodyStyle.Render("[This post has been deleted by author]") + "\n\n")
 	}
-	b.WriteString("\n" + styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n")
+	b.WriteString(styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n")
 
 	// 3. Comments Header
 	commentCount := len(m.comments)
@@ -381,20 +383,14 @@ func (m *Model) renderPostDetailContent() string {
 
 		b.WriteString(fmt.Sprintf("%s%s%s%s%s  %s  %s%s\n", indicator, indent, branch, cAuthor, opBadge, cScore, cTime, selPill))
 
-		// Indent and wrap comment body lines
-		var cBody string
-		if c.IsDeleted {
-			cBody = "[deleted]"
-		} else {
-			cBody = sanitize.Text(c.Body)
-		}
+		// Indent and wrap comment body lines with markdown rendering
 		indentLen := depth*2 + 6
 		availCommentWidth := max(20, contentWidth-indentLen)
 		var wrappedBody string
 		if c.IsDeleted {
-			wrappedBody = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Width(availCommentWidth).Render(cBody)
+			wrappedBody = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Width(availCommentWidth).Render("[deleted]")
 		} else {
-			wrappedBody = lipgloss.NewStyle().Width(availCommentWidth).Render(cBody)
+			wrappedBody = renderMarkdown(c.Body, availCommentWidth)
 		}
 		bodyLines := strings.Split(wrappedBody, "\n")
 

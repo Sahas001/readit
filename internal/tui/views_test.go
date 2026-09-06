@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/sahas/readit/internal/db/sqlc"
+	"github.com/sahas/readit/internal/sanitize"
 )
 
 func TestRelativeTime(t *testing.T) {
@@ -465,5 +466,74 @@ func TestSpinningEarthAndShiningLogo(t *testing.T) {
 		t.Errorf("renderHeroBanner on narrow terminal returned empty string")
 	}
 }
+
+func TestPostListSelectionNeverShiftsHorizontally(t *testing.T) {
+	m := &Model{
+		width:        100,
+		height:       30,
+		currentView:  viewPostList,
+		currentBoard: &db.Board{Slug: "ask", Description: "Ask anything"},
+		posts: []db.ListPostsByBoardNewRow{
+			{
+				ID:           1,
+				Title:        "Short Title",
+				AuthorHandle: "alice",
+				Score:        5,
+				CommentCount: 2,
+			},
+			{
+				ID:           2,
+				Title:        "A Much Longer Discussion Title Here",
+				AuthorHandle: "bob",
+				Score:        10,
+				CommentCount: 8,
+			},
+		},
+	}
+
+	// 1. Render with post 0 selected
+	m.postCursor = 0
+	view0 := m.viewPostList()
+
+	// 2. Render with post 1 selected
+	m.postCursor = 1
+	view1 := m.viewPostList()
+
+	// Helper to find the visible column index of a substring within lines
+	findCol := func(view, text string) int {
+		for _, line := range strings.Split(view, "\n") {
+			clean := sanitize.Text(line)
+			if idx := strings.Index(clean, text); idx != -1 {
+				return lipgloss.Width(clean[:idx])
+			}
+		}
+		return -1
+	}
+
+	// Both posts should have their titles start at the exact same visible column, whether selected or unselected
+	colShortWhenSelected := findCol(view0, "Short Title")
+	colShortWhenUnselected := findCol(view1, "Short Title")
+	colLongWhenUnselected := findCol(view0, "A Much Longer Discussion")
+	colLongWhenSelected := findCol(view1, "A Much Longer Discussion")
+
+	if colShortWhenSelected != colShortWhenUnselected {
+		t.Errorf("horizontal position shifted for 'Short Title': selected at %d, unselected at %d",
+			colShortWhenSelected, colShortWhenUnselected)
+	}
+	if colLongWhenSelected != colLongWhenUnselected {
+		t.Errorf("horizontal position shifted for 'A Much Longer Discussion': selected at %d, unselected at %d",
+			colLongWhenSelected, colLongWhenUnselected)
+	}
+	if colShortWhenSelected != colLongWhenSelected {
+		t.Errorf("titles do not align horizontally: short at %d, long at %d",
+			colShortWhenSelected, colLongWhenSelected)
+	}
+
+	// Ensure no CardBgHover background color exists in the view
+	if strings.Contains(view0, "\x1b[48;2;34;34;52m") { // #222234 in 24-bit RGB
+		t.Errorf("view contains unwanted slate-blue background color escape sequence")
+	}
+}
+
 
 
