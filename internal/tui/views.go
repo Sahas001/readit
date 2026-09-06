@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	db "github.com/sahas/readit/internal/db/sqlc"
 	"github.com/sahas/readit/internal/sanitize"
 )
 
@@ -136,28 +137,65 @@ func (m *Model) viewPostList() string {
 	var content strings.Builder
 
 	// Board Subheader Banner
-	boardBanner := fmt.Sprintf("/b/%s", boardSlug)
-	if boardDesc != "" {
-		boardBanner += "  ·  " + boardDesc
+	// 1. Left: Board description (shifted left, /b/slug removed)
+	leftTitle := boardDesc
+	if leftTitle == "" {
+		leftTitle = "/b/" + boardSlug
 	}
-	countStr := fmt.Sprintf("%d discussions", len(m.posts))
-	sortBadge := fmt.Sprintf("[s] %s", m.postSortMode.String())
-	filterBadge := "[c] all"
+	leftView := styleTitle.Render(leftTitle)
+
+	// 2. Right: Counts + Sort + Flair (Clean state badges without shortcut clutter)
+	countLabel := "discussions"
+	if m.searchQuery != "" {
+		countLabel = "matches"
+	}
+	countStr := fmt.Sprintf("%d %s", len(m.posts), countLabel)
+	sortBadge := strings.Title(m.postSortMode.String())
+	filterBadge := "All"
 	if m.categoryFilter != "" {
-		filterBadge = fmt.Sprintf("[c] %s", m.categoryFilter)
+		filterBadge = m.categoryFilter
 	}
 	infoStr := fmt.Sprintf("%s  •  %s  •  %s", countStr, sortBadge, filterBadge)
-	headerRow := renderFormLabel(styleTitle.Render(boardBanner), styleSortPill.Render(infoStr), contentWidth)
+	rightView := styleSortPill.Render(infoStr)
+
+	headerRow := renderTwoColumnHeader(leftView, rightView, contentWidth)
 	content.WriteString(headerRow + "\n")
-	content.WriteString(styleRule.Render(strings.Repeat("─", contentWidth)) + "\n\n")
+	content.WriteString(styleRule.Render(strings.Repeat("─", contentWidth)) + "\n")
+
+	// Dedicated Search Filter Bar (Active when focused or filtered)
+	if m.searchFocused {
+		hint := styleFilterHint.Render("enter search  •  esc cancel")
+		avail := max(10, contentWidth-lipgloss.Width(hint)-2)
+		m.searchInput.Width = avail
+		filterInput := m.searchInput.View()
+		spaces := max(1, contentWidth-lipgloss.Width(filterInput)-lipgloss.Width(hint))
+		content.WriteString(filterInput + strings.Repeat(" ", spaces) + hint + "\n")
+		content.WriteString(styleRule.Render(strings.Repeat("─", contentWidth)) + "\n")
+	} else if m.searchQuery != "" {
+		queryPart := styleFilterPrompt.Render("filter: ") + styleFilterQuery.Render(fmt.Sprintf("%q", m.searchQuery))
+		matchesPart := styleFilterHint.Render(fmt.Sprintf("(%d matches)  •  esc to clear", len(m.posts)))
+		spaces := max(1, contentWidth-lipgloss.Width(queryPart)-lipgloss.Width(matchesPart))
+		content.WriteString(queryPart + strings.Repeat(" ", spaces) + matchesPart + "\n")
+		content.WriteString(styleRule.Render(strings.Repeat("─", contentWidth)) + "\n")
+	} else {
+		content.WriteString("\n")
+	}
 
 	if len(m.posts) == 0 {
-		emptyMsg := fmt.Sprintf("\n  💬  No discussions yet in /b/%s\n\n  Be the first to start a conversation!\n  Press [n] to create a new discussion.\n", boardSlug)
+		var emptyMsg string
+		if m.searchQuery != "" {
+			emptyMsg = fmt.Sprintf("\n  •  No discussions found for %q\n\n  Try searching for a different keyword\n  or press [esc] to clear the search filter.\n", sanitize.SingleLine(m.searchQuery))
+		} else {
+			emptyMsg = fmt.Sprintf("\n  •  No discussions yet in /b/%s\n\n  Be the first to start a conversation!\n  Press [n] to create a new discussion.\n", boardSlug)
+		}
 		emptyCard := styleEmptyCard.Width(min(58, contentWidth-4)).Render(emptyMsg)
 		content.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, emptyCard))
 	} else {
-		// Window posts: each post consumes ~3 lines (vote column + title + meta + spacing)
+		// Window posts: each post consumes ~2 lines + 1 line spacing = 3 lines
 		availForPosts := max(3, contentHeight-3)
+		if m.searchFocused || m.searchQuery != "" {
+			availForPosts = max(3, contentHeight-5)
+		}
 		postsPerPage := max(1, availForPosts/3)
 
 		startIdx := 0
@@ -170,16 +208,27 @@ func (m *Model) viewPostList() string {
 			post := m.posts[i]
 			isSelected := (i == m.postCursor)
 
-			// Vote column
-			var voteCol string
-			if isSelected {
-				voteCol = styleVoteUp.Render("▲") + "\n" +
-					styleScore.Render(fmt.Sprintf("%2d", post.Score)) + "\n" +
-					styleVoteDown.Render("▼")
+			// Vote column: compact and centered
+			scoreStr := fmt.Sprintf("%d", post.Score)
+			var votePill string
+			if post.Score > 0 {
+				if isSelected {
+					votePill = styleVoteUp.Render("▲") + " " + styleScore.Copy().Width(0).Render(scoreStr)
+				} else {
+					votePill = styleVoteUp.Render("▲") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+				}
+			} else if post.Score < 0 {
+				if isSelected {
+					votePill = styleVoteDown.Render("▼") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.Downvote).Render(scoreStr)
+				} else {
+					votePill = styleVoteDown.Render("▼") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+				}
 			} else {
-				voteCol = styleVoteNeutral.Render("▲") + "\n" +
-					styleScore.Copy().Foreground(currentTheme.TextMuted).Render(fmt.Sprintf("%2d", post.Score)) + "\n" +
-					styleVoteNeutral.Render("▼")
+				if isSelected {
+					votePill = styleVoteNeutral.Render("▲") + " " + styleScore.Copy().Width(0).Render(scoreStr)
+				} else {
+					votePill = styleVoteNeutral.Render("▲") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+				}
 			}
 
 			// Content column
@@ -213,37 +262,59 @@ func (m *Model) viewPostList() string {
 				styleMeta.Render(commentsStr),
 			)
 			if categoryStr != "" {
-				metaLine += " • " + categoryStr
-			}
-			if !post.IsDeleted && post.Url != "" {
-				metaLine += " • " + styleLinkBadge.Render("link")
+				metaLine = categoryStr + "  " + metaLine
 			}
 
-			contentBox := titleView + "\n" + metaLine
-			postRow := lipgloss.JoinHorizontal(lipgloss.Top, voteCol, "   ", contentBox)
+			voteWidth := 6
+			voteFormatted := lipgloss.NewStyle().Width(voteWidth).Align(lipgloss.Right).Render(votePill)
+			spacer := strings.Repeat(" ", voteWidth)
+			line1 := voteFormatted + "  " + titleView
+			line2 := spacer + "  " + metaLine
+			postBox := line1 + "\n" + line2
 
 			cardWidth := max(10, contentWidth-1)
 			var postCard string
 			if isSelected {
-				postCard = stylePostCardSelected.Width(cardWidth).Render(postRow)
+				postCard = stylePostCardSelected.Width(cardWidth).Render(postBox)
 			} else {
-				postCard = stylePostCardNormal.Width(cardWidth).Render(postRow)
+				postCard = stylePostCardNormal.Width(cardWidth).Render(postBox)
 			}
 			content.WriteString(postCard + "\n\n")
 		}
 	}
 
-	shortcuts := [][2]string{
-		{"j/k", "move"},
-		{"enter", "view"},
-		{"s", "sort"},
-		{"c", "flair"},
-		{"u/d", "vote"},
-		{"n", "new post"},
-		{"x", "delete"},
-		{"g/G", "top/end"},
-		{"esc", "boards"},
-		{"q", "quit"},
+	var shortcuts [][2]string
+	if m.searchFocused {
+		shortcuts = [][2]string{
+			{"enter", "search"},
+			{"esc", "cancel"},
+		}
+	} else if m.searchQuery != "" {
+		shortcuts = [][2]string{
+			{"j/k", "move"},
+			{"enter", "view"},
+			{"/", "search"},
+			{"esc", "clear search"},
+			{"s", "sort"},
+			{"c", "flair"},
+			{"u/d", "vote"},
+			{"n", "new post"},
+			{"x", "delete"},
+			{"q", "quit"},
+		}
+	} else {
+		shortcuts = [][2]string{
+			{"j/k", "move"},
+			{"enter", "view"},
+			{"/", "search"},
+			{"s", "sort"},
+			{"c", "flair"},
+			{"u/d", "vote"},
+			{"n", "new post"},
+			{"x", "delete"},
+			{"esc", "boards"},
+			{"q", "quit"},
+		}
 	}
 
 	return m.renderAppShell(contextTitle, content.String(), shortcuts)
@@ -286,9 +357,9 @@ func (m *Model) renderPostDetailContent() string {
 
 	// 1. Post Header with Vote Column & Content
 	scoreStr := fmt.Sprintf("%2d", p.Score)
-	voteCol := styleVoteUp.Render("▲") + "\n" +
+	voteCol := styleVoteUp.Copy().Width(5).Align(lipgloss.Center).Render("▲") + "\n" +
 		styleScore.Render(scoreStr) + "\n" +
-		styleVoteDown.Render("▼")
+		styleVoteDown.Copy().Width(5).Align(lipgloss.Center).Render("▼")
 
 	titleStr := sanitize.SingleLine(p.Title)
 	var title string
@@ -314,9 +385,9 @@ func (m *Model) renderPostDetailContent() string {
 		meta += " • " + lipgloss.NewStyle().Foreground(currentTheme.Upvote).Italic(true).Render("(deleted)")
 	}
 
+	cursorIndicator := "  "
 	if m.commentCursor == -1 {
-		selectedIndicator := lipgloss.NewStyle().Foreground(currentTheme.Accent).Italic(true).Render("  ◄ post selected (r to reply)")
-		title = title + selectedIndicator
+		cursorIndicator = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("▌ ")
 	}
 
 	contentBox := title + "\n" + meta
@@ -325,7 +396,7 @@ func (m *Model) renderPostDetailContent() string {
 		contentBox += "\n" + urlStr
 	}
 
-	headerRow := lipgloss.JoinHorizontal(lipgloss.Top, voteCol, "   ", contentBox)
+	headerRow := lipgloss.JoinHorizontal(lipgloss.Top, cursorIndicator, voteCol, "  ", contentBox)
 	b.WriteString(headerRow + "\n\n")
 
 	// 2. Post Body with Markdown Rendering
@@ -333,41 +404,31 @@ func (m *Model) renderPostDetailContent() string {
 		bodyWidth := max(20, contentWidth-4)
 		renderedBody := renderMarkdown(p.Body, bodyWidth)
 		if renderedBody != "" {
-			b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Render(renderedBody) + "\n\n")
+			b.WriteString(lipgloss.NewStyle().PaddingLeft(4).Render(renderedBody) + "\n\n")
 		}
 	} else if p.IsDeleted {
 		bodyWidth := max(20, contentWidth-4)
-		bodyStyle := lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).PaddingLeft(2).Width(bodyWidth)
+		bodyStyle := lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).PaddingLeft(4).Width(bodyWidth)
 		b.WriteString(bodyStyle.Render("[This post has been deleted by author]") + "\n\n")
 	}
 	b.WriteString(styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n")
 
 	// 3. Comments Header
 	commentCount := len(m.comments)
-	commentHeader := fmt.Sprintf("  Comments (%d)   •   [s] sort: %s", commentCount, m.commentSortMode.String())
-	if contentWidth >= 65 {
-		commentHeader += "   •   [r: reply • R: reply to post]"
-	}
+	commentHeader := fmt.Sprintf("  Comments (%d)      •      sort: %s", commentCount, m.commentSortMode.String())
 	b.WriteString(commentHeader + "\n")
 	b.WriteString(styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n\n")
 
 	if commentCount == 0 {
-		b.WriteString(styleSubtitle.Render("    💬  No comments yet. Be the first to reply (press r)!") + "\n")
+		b.WriteString(styleSubtitle.Render("    •  No comments yet. Press [r] to reply!") + "\n")
 		return b.String()
 	}
 
 	m.commentLineOffsets = make([]int, len(m.comments))
 
-	// 4. Threaded Comments Tree
+	// 4. Threaded Comments Tree with True Hierarchy Trunks
 	for i, c := range m.comments {
 		m.commentLineOffsets[i] = strings.Count(b.String(), "\n")
-
-		depth := int(c.Depth)
-		indent := strings.Repeat("  ", depth)
-		branchGlyph := "• "
-		if depth > 0 {
-			branchGlyph = "└─ "
-		}
 
 		isSelected := (i == m.commentCursor)
 		isOP := (m.currentPost != nil && !c.IsDeleted && !m.currentPost.IsDeleted && c.AuthorHandle == m.currentPost.AuthorHandle)
@@ -377,38 +438,37 @@ func (m *Model) renderPostDetailContent() string {
 			opBadge = " " + styleOpBadge.Render("[OP]")
 		}
 
+		branchStr := renderTreePrefix(m.comments, i)
 		var indicator string
 		var branch string
 		var cAuthor string
-		var selPill string
 
 		if isSelected {
 			indicator = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("▌ ")
-			branch = styleSelectedBranch.Render(branchGlyph)
+			branch = styleSelectedBranch.Render(branchStr)
 			if c.IsDeleted {
 				cAuthor = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
 			} else {
 				cAuthor = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("@" + sanitize.SingleLine(c.AuthorHandle))
 			}
-			selPill = lipgloss.NewStyle().Foreground(currentTheme.Accent).Italic(true).Render("  ◄ selected (r to reply)")
 		} else {
 			indicator = "  "
-			branch = styleBranch.Render(branchGlyph)
+			branch = styleBranch.Render(branchStr)
 			if c.IsDeleted {
 				cAuthor = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
 			} else {
 				cAuthor = styleAuthor.Render("@" + sanitize.SingleLine(c.AuthorHandle))
 			}
-			selPill = ""
 		}
 
 		cScore := styleScore.Copy().Width(0).Render(fmt.Sprintf("%d▲", c.Score))
 		cTime := styleSubtitle.Render(relativeTime(c.CreatedAt.Time))
 
-		b.WriteString(fmt.Sprintf("%s%s%s%s%s  %s  %s%s\n", indicator, indent, branch, cAuthor, opBadge, cScore, cTime, selPill))
+		b.WriteString(fmt.Sprintf("%s%s%s%s  %s  %s\n", indicator, branch, cAuthor, opBadge, cScore, cTime))
 
 		// Indent and wrap comment body lines with markdown rendering
-		indentLen := depth*2 + 6
+		branchWidth := lipgloss.Width(branchStr)
+		indentLen := branchWidth + 2
 		availCommentWidth := max(20, contentWidth-indentLen)
 		var wrappedBody string
 		if c.IsDeleted {
@@ -418,12 +478,7 @@ func (m *Model) renderPostDetailContent() string {
 		}
 		bodyLines := strings.Split(wrappedBody, "\n")
 
-		var bodyPrefix string
-		if isSelected {
-			bodyPrefix = fmt.Sprintf("%s%s   ", indicator, indent)
-		} else {
-			bodyPrefix = fmt.Sprintf("  %s   ", indent)
-		}
+		bodyPrefix := fmt.Sprintf("%s%s", indicator, strings.Repeat(" ", branchWidth))
 		for _, line := range bodyLines {
 			b.WriteString(fmt.Sprintf("%s%s\n", bodyPrefix, line))
 		}
@@ -440,10 +495,10 @@ func (m *Model) viewNewPost() string {
 	}
 	contextTitle := "/b/" + boardSlug + " · New Discussion"
 
-	_, contentWidth, inputWidth := m.formDimensions()
+	cardWidth, contentWidth, inputWidth := m.formDimensions()
+	_, _, shellContentWidth, _ := m.shellDimensions()
 
 	var f strings.Builder
-	f.WriteString(stylePrompt.Render(fmt.Sprintf("Create Discussion in /b/%s", boardSlug)) + "\n\n")
 
 	// Title Input + Counter
 	titleStyle := styleInputBlurred
@@ -458,26 +513,29 @@ func (m *Model) viewNewPost() string {
 	f.WriteString(titleStyle.Width(inputWidth).Render(m.titleInput.View()) + "\n\n")
 
 	// Flair / Category Selector (Focus 1)
-	catLabel := styleSubtitle.Render("Flair / Category (h/l or ←/→ to cycle):")
+	catLabel := styleSubtitle.Render("Flair:")
+	if m.postFormFocus == 1 {
+		catLabel = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("Flair (h/l):")
+	}
 	var catPills strings.Builder
 	for idx, cat := range AvailableCategories {
 		isSelectedCat := (idx == m.newPostCategoryIdx)
 		if isSelectedCat {
 			if m.postFormFocus == 1 {
-				catPills.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(currentTheme.Primary).Bold(true).Render(" " + cat + " ") + " ")
+				catPills.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(currentTheme.Primary).Bold(true).Render(" "+cat+" ") + " ")
 			} else {
-				catPills.WriteString(styleCategoryBadge(cat).Bold(true).Underline(true).Render("[" + cat + "]") + " ")
+				catPills.WriteString(styleCategoryBadge(cat).Bold(true).Underline(true).Render("["+cat+"]") + " ")
 			}
 		} else {
-			catPills.WriteString(lipgloss.NewStyle().Foreground(currentTheme.TextDim).Render("[" + cat + "]") + " ")
+			catPills.WriteString(lipgloss.NewStyle().Foreground(currentTheme.TextDim).Render("["+cat+"]") + " ")
 		}
 	}
-	f.WriteString(catLabel + "\n")
-	catBoxStyle := styleInputBlurred
-	if m.postFormFocus == 1 {
-		catBoxStyle = styleInputFocused
+	pillsText := strings.TrimSpace(catPills.String())
+	if lipgloss.Width(catLabel)+1+lipgloss.Width(pillsText) <= contentWidth {
+		f.WriteString(catLabel + " " + pillsText + "\n\n")
+	} else {
+		f.WriteString(catLabel + "\n" + pillsText + "\n\n")
 	}
-	f.WriteString(catBoxStyle.Width(inputWidth).Render(strings.TrimSpace(catPills.String())) + "\n\n")
 
 	// URL Input + Counter (Focus 2)
 	urlStyle := styleInputBlurred
@@ -510,9 +568,8 @@ func (m *Model) viewNewPost() string {
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(currentTheme.Border).
-		Padding(1, 2).
-		Background(currentTheme.CardBg)
-	card := cardStyle.Render(f.String())
+		Padding(0, 2)
+	card := cardStyle.Width(cardWidth).Render(f.String())
 
 	shortcuts := [][2]string{
 		{"enter/tab", "next"},
@@ -522,7 +579,7 @@ func (m *Model) viewNewPost() string {
 		{"esc", "cancel"},
 	}
 
-	return m.renderAppShell(contextTitle, lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
+	return m.renderAppShell(contextTitle, lipgloss.PlaceHorizontal(shellContentWidth, lipgloss.Center, card), shortcuts)
 }
 
 func (m *Model) viewNewComment() string {
@@ -532,10 +589,10 @@ func (m *Model) viewNewComment() string {
 	}
 	contextTitle := "Reply to " + target
 
-	_, contentWidth, inputWidth := m.formDimensions()
+	cardWidth, contentWidth, inputWidth := m.formDimensions()
+	_, _, shellContentWidth, _ := m.shellDimensions()
 
 	var f strings.Builder
-	f.WriteString(stylePrompt.Render(fmt.Sprintf("Write Reply to %s", target)) + "\n\n")
 
 	commLen := len([]rune(m.commentInput.Value()))
 	commLimit := m.commentInput.CharLimit
@@ -551,16 +608,15 @@ func (m *Model) viewNewComment() string {
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(currentTheme.Border).
-		Padding(1, 2).
-		Background(currentTheme.CardBg)
-	card := cardStyle.Render(f.String())
+		Padding(0, 2)
+	card := cardStyle.Width(cardWidth).Render(f.String())
 
 	shortcuts := [][2]string{
 		{"ctrl+s", "submit reply"},
 		{"esc", "cancel"},
 	}
 
-	return m.renderAppShell(contextTitle, lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
+	return m.renderAppShell(contextTitle, lipgloss.PlaceHorizontal(shellContentWidth, lipgloss.Center, card), shortcuts)
 }
 
 func (m *Model) viewError() string {
@@ -680,6 +736,104 @@ func renderFormLabel(label, count string, targetWidth int) string {
 	return label + strings.Repeat(" ", spaces) + count
 }
 
+func renderTwoColumnHeader(left, right string, targetWidth int) string {
+	lW := lipgloss.Width(left)
+	rW := lipgloss.Width(right)
+	if lW+rW+2 <= targetWidth {
+		gap := targetWidth - lW - rW
+		return left + strings.Repeat(" ", gap) + right
+	}
+	availForLeft := max(4, targetWidth-rW-2)
+	leftTrunc := lipgloss.NewStyle().MaxWidth(availForLeft).Render(left)
+	lW = lipgloss.Width(leftTrunc)
+	gap := max(1, targetWidth-lW-rW)
+	return leftTrunc + strings.Repeat(" ", gap) + right
+}
+
+// renderTreePrefix builds proper tree branch continuation lines with ancestor trunks
+func renderTreePrefix(comments []db.GetCommentThreadByPostRow, idx int) string {
+	c := comments[idx]
+	depth := int(c.Depth)
+	if depth <= 0 {
+		return "• "
+	}
+
+	ancestorHasNext := make([]bool, depth)
+	for d := 1; d < depth; d++ {
+		hasNext := false
+		for j := idx + 1; j < len(comments); j++ {
+			if int(comments[j].Depth) < d {
+				break
+			}
+			if int(comments[j].Depth) == d {
+				hasNext = true
+				break
+			}
+		}
+		ancestorHasNext[d] = hasNext
+	}
+
+	isLast := true
+	for j := idx + 1; j < len(comments); j++ {
+		if int(comments[j].Depth) < depth {
+			break
+		}
+		if int(comments[j].Depth) == depth {
+			isLast = false
+			break
+		}
+	}
+
+	var b strings.Builder
+	for d := 1; d < depth; d++ {
+		if ancestorHasNext[d] {
+			b.WriteString("│  ")
+		} else {
+			b.WriteString("   ")
+		}
+	}
+	if isLast {
+		b.WriteString("└─ ")
+	} else {
+		b.WriteString("├─ ")
+	}
+	return b.String()
+}
+
+func renderThreeColumnHeader(left, center, right string, targetWidth int) string {
+	lW := lipgloss.Width(left)
+	cW := lipgloss.Width(center)
+	rW := lipgloss.Width(right)
+
+	if lW+cW+rW+2 <= targetWidth {
+		centerStart := (targetWidth - cW) / 2
+		centerEnd := centerStart + cW
+		if centerStart > lW && centerEnd < targetWidth-rW {
+			gap1 := centerStart - lW
+			gap2 := targetWidth - rW - centerEnd
+			return left + strings.Repeat(" ", gap1) + center + strings.Repeat(" ", gap2) + right
+		}
+		totalSpaces := targetWidth - lW - cW - rW
+		gap1 := totalSpaces / 2
+		gap2 := totalSpaces - gap1
+		return left + strings.Repeat(" ", gap1) + center + strings.Repeat(" ", gap2) + right
+	}
+
+	availForLeft := targetWidth - cW - rW - 2
+	if availForLeft >= 6 {
+		leftTrunc := lipgloss.NewStyle().MaxWidth(availForLeft).Render(left)
+		lW = lipgloss.Width(leftTrunc)
+		gap1 := 1
+		gap2 := max(1, targetWidth-lW-cW-rW-gap1)
+		return leftTrunc + strings.Repeat(" ", gap1) + center + strings.Repeat(" ", gap2) + right
+	}
+
+	if cW > 0 && targetWidth-cW-rW >= 1 {
+		return center + strings.Repeat(" ", max(1, targetWidth-cW-rW)) + right
+	}
+	return renderFormLabel(left, right, targetWidth)
+}
+
 func relativeTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -735,21 +889,21 @@ func (m *Model) viewDeleteConfirm() string {
 
 	if target.targetType == deleteTargetPost {
 		if target.hasDependents {
-			b.WriteString(titleStyle.Render("⚠️  Delete Discussion?") + "\n\n")
+			b.WriteString(titleStyle.Render("!  Delete Discussion?") + "\n\n")
 			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
 			b.WriteString(warnStyle.Render(fmt.Sprintf("This post has %d active comments. The title, body, and author will be scrubbed to [deleted] to preserve thread continuity.", target.commentCount)) + "\n\n")
 		} else {
-			b.WriteString(titleStyle.Render("🗑  Permanently Delete Discussion?") + "\n\n")
+			b.WriteString(titleStyle.Render("✕  Permanently Delete Discussion?") + "\n\n")
 			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
 			b.WriteString(descStyle.Render("This post has no comments. It will be completely removed from the database.") + "\n\n")
 		}
 	} else {
 		if target.hasDependents {
-			b.WriteString(titleStyle.Render("⚠️  Delete Comment?") + "\n\n")
+			b.WriteString(titleStyle.Render("!  Delete Comment?") + "\n\n")
 			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
 			b.WriteString(warnStyle.Render("This comment has active replies. Its text and author will be replaced with [deleted] to preserve the conversation thread.") + "\n\n")
 		} else {
-			b.WriteString(titleStyle.Render("🗑  Permanently Delete Comment?") + "\n\n")
+			b.WriteString(titleStyle.Render("✕  Permanently Delete Comment?") + "\n\n")
 			b.WriteString(itemStyle.Render(fmt.Sprintf("%q", safeItemSnippet)) + "\n\n")
 			b.WriteString(descStyle.Render("This comment has no replies. It will be completely removed from the database.") + "\n\n")
 		}
@@ -767,7 +921,7 @@ func (m *Model) viewDeleteConfirm() string {
 	btnCancel := lipgloss.NewStyle().
 		Foreground(currentTheme.TextMuted).
 		Padding(0, 2).
-		Render("[n / esc] Cancel")
+		Render("[esc] Cancel")
 
 	btnRow := lipgloss.JoinHorizontal(lipgloss.Center, btnConfirm, "  ", btnCancel)
 	b.WriteString(lipgloss.PlaceHorizontal(innerContentWidth, lipgloss.Center, btnRow))

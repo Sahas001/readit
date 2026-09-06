@@ -179,6 +179,7 @@ JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
   AND ($4::TEXT = '' OR p.category = $4)
+  AND ($5::TEXT = '' OR (p.title ILIKE '%' || $5::TEXT || '%' OR p.body ILIKE '%' || $5::TEXT || '%'))
 ORDER BY (
     (p.score + 1)::FLOAT / POWER(GREATEST(1.0, EXTRACT(EPOCH FROM (now() - p.created_at))/3600.0 + 2.0), 1.5)
 ) DESC, p.created_at DESC
@@ -186,10 +187,11 @@ LIMIT $2 OFFSET $3
 `
 
 type ListPostsByBoardHotParams struct {
-	BoardID  int64  `json:"board_id"`
-	Limit    int32  `json:"limit"`
-	Offset   int32  `json:"offset"`
-	Category string `json:"category"`
+	BoardID     int64  `json:"board_id"`
+	Limit       int32  `json:"limit"`
+	Offset      int32  `json:"offset"`
+	Category    string `json:"category"`
+	SearchQuery string `json:"search_query"`
 }
 
 type ListPostsByBoardHotRow struct {
@@ -212,6 +214,7 @@ func (q *Queries) ListPostsByBoardHot(ctx context.Context, arg ListPostsByBoardH
 		arg.Limit,
 		arg.Offset,
 		arg.Category,
+		arg.SearchQuery,
 	)
 	if err != nil {
 		return nil, err
@@ -261,15 +264,17 @@ JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
   AND ($4::TEXT = '' OR p.category = $4)
+  AND ($5::TEXT = '' OR (p.title ILIKE '%' || $5::TEXT || '%' OR p.body ILIKE '%' || $5::TEXT || '%'))
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 type ListPostsByBoardNewParams struct {
-	BoardID  int64  `json:"board_id"`
-	Limit    int32  `json:"limit"`
-	Offset   int32  `json:"offset"`
-	Category string `json:"category"`
+	BoardID     int64  `json:"board_id"`
+	Limit       int32  `json:"limit"`
+	Offset      int32  `json:"offset"`
+	Category    string `json:"category"`
+	SearchQuery string `json:"search_query"`
 }
 
 type ListPostsByBoardNewRow struct {
@@ -292,6 +297,7 @@ func (q *Queries) ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardN
 		arg.Limit,
 		arg.Offset,
 		arg.Category,
+		arg.SearchQuery,
 	)
 	if err != nil {
 		return nil, err
@@ -341,15 +347,17 @@ JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
   AND ($4::TEXT = '' OR p.category = $4)
+  AND ($5::TEXT = '' OR (p.title ILIKE '%' || $5::TEXT || '%' OR p.body ILIKE '%' || $5::TEXT || '%'))
 ORDER BY p.score DESC, p.created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 type ListPostsByBoardTopParams struct {
-	BoardID  int64  `json:"board_id"`
-	Limit    int32  `json:"limit"`
-	Offset   int32  `json:"offset"`
-	Category string `json:"category"`
+	BoardID     int64  `json:"board_id"`
+	Limit       int32  `json:"limit"`
+	Offset      int32  `json:"offset"`
+	Category    string `json:"category"`
+	SearchQuery string `json:"search_query"`
 }
 
 type ListPostsByBoardTopRow struct {
@@ -372,6 +380,7 @@ func (q *Queries) ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardT
 		arg.Limit,
 		arg.Offset,
 		arg.Category,
+		arg.SearchQuery,
 	)
 	if err != nil {
 		return nil, err

@@ -16,7 +16,6 @@
 [![TUI Architecture](https://img.shields.io/badge/TUI-Bubble%20Tea%20%7C%20Lip%20Gloss-FF4500?style=flat)](https://github.com/charmbracelet/bubbletea)
 [![SSH Server](https://img.shields.io/badge/SSH-Charm%20Wish-00D1B2?style=flat)](https://github.com/charmbracelet/wish)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20sqlc-336791?style=flat&logo=postgresql)](https://sqlc.dev/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
 
@@ -96,6 +95,7 @@ Compose new posts and replies using floating modal dialogs with nested input box
 | **Navigation** | `G` / `End` | Jump to bottom of list or thread |
 | **Board List** | `Enter` | Enter selected board |
 | **Post Feed** | `Enter` | View discussion thread & comments |
+| **Post Feed** | `/` | Search discussions in active board (`Enter` to submit, `Esc` to clear) |
 | **Post Feed** | `s` | Cycle feed sort order (`hot` → `new` → `top`) |
 | **Post Feed** | `c` | Cycle flair filter (`all` → `general` → `discussion` → `question` → `showcase` → `guide` → `news`) |
 | **Post Feed** | `n` | Create new discussion in active board |
@@ -206,6 +206,7 @@ This project is developed under an ensemble of specialized workspace autonomous 
 - **`tui-ux-engineer`**: TUI Creative Engineer maintaining design tokens, visual hierarchy, and responsive layouts.
 - **`tui-qa-tester`**: Quality Assurance Engineer driving autonomous tmux navigation and multimodal visual inspection.
 - **`git-expert`**: Git & Release Engineer enforcing staging hygiene and Conventional Commits.
+- **`backend-db-auditor`**: Database & Backend Integrity Auditor inspecting schema consistency, transactional boundaries, query efficiency, and security vulnerabilities.
 
 ---
 

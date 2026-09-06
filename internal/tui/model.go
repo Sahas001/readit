@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -88,6 +89,9 @@ type Model struct {
 	postCursor     int
 	postSortMode   PostSortMode
 	categoryFilter string // "" for all, or category name
+	searchQuery    string // Active search query filter
+	searchInput    textinput.Model
+	searchFocused  bool
 
 	// Post detail & comments.
 	currentPost        *db.GetPostByIDRow
@@ -215,6 +219,10 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 	bodyA.Placeholder = "Write your post body here (supports markdown)..."
 	bodyA.ShowLineNumbers = false
 	bodyA.Prompt = ""
+	bodyA.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	bodyA.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	bodyA.FocusedStyle.Base = lipgloss.NewStyle()
+	bodyA.BlurredStyle.Base = lipgloss.NewStyle()
 	bodyA.SetWidth(65)
 	bodyA.SetHeight(8)
 	bodyA.CharLimit = 10000
@@ -224,9 +232,21 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 	commA.Placeholder = "Write your reply here..."
 	commA.ShowLineNumbers = false
 	commA.Prompt = ""
+	commA.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	commA.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	commA.FocusedStyle.Base = lipgloss.NewStyle()
+	commA.BlurredStyle.Base = lipgloss.NewStyle()
 	commA.SetWidth(65)
 	commA.SetHeight(6)
 	commA.CharLimit = 5000
+
+	// Post search input
+	searchIn := textinput.New()
+	searchIn.Placeholder = "type to filter discussions..."
+	searchIn.CharLimit = 64
+	searchIn.Width = 36
+	searchIn.Prompt = "/ filter: "
+	searchIn.PromptStyle = styleFilterPrompt
 
 	vp := viewport.New(80, 20)
 
@@ -243,6 +263,7 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 		urlInput:     urlIn,
 		bodyInput:    bodyA,
 		commentInput: commA,
+		searchInput:  searchIn,
 		viewport:      vp,
 		commentCursor: -1,
 	}
@@ -579,6 +600,9 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 			if len(m.boards) > 0 {
 				board := m.boards[m.boardCursor]
 				m.currentBoard = &board
+				m.searchQuery = ""
+				m.searchInput.SetValue("")
+				m.searchFocused = false
 				return m, m.loadPostsCmd(board.ID)
 			}
 		}
@@ -591,6 +615,7 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 	sortMode := m.postSortMode
 	catFilter := m.categoryFilter
+	searchQuery := m.searchQuery
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
@@ -604,10 +629,11 @@ func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 		switch sortMode {
 		case PostSortHot:
 			rows, err := m.queries.ListPostsByBoardHot(ctx, db.ListPostsByBoardHotParams{
-				BoardID:  boardID,
-				Limit:    50,
-				Offset:   0,
-				Category: catFilter,
+				BoardID:     boardID,
+				Limit:       50,
+				Offset:      0,
+				Category:    catFilter,
+				SearchQuery: searchQuery,
 			})
 			if err != nil {
 				return errMsg{err: fmt.Errorf("loading hot posts: %w", err)}
@@ -618,10 +644,11 @@ func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 			}
 		case PostSortTop:
 			rows, err := m.queries.ListPostsByBoardTop(ctx, db.ListPostsByBoardTopParams{
-				BoardID:  boardID,
-				Limit:    50,
-				Offset:   0,
-				Category: catFilter,
+				BoardID:     boardID,
+				Limit:       50,
+				Offset:      0,
+				Category:    catFilter,
+				SearchQuery: searchQuery,
 			})
 			if err != nil {
 				return errMsg{err: fmt.Errorf("loading top posts: %w", err)}
@@ -632,10 +659,11 @@ func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 			}
 		default: // PostSortNew
 			rows, err := m.queries.ListPostsByBoardNew(ctx, db.ListPostsByBoardNewParams{
-				BoardID:  boardID,
-				Limit:    50,
-				Offset:   0,
-				Category: catFilter,
+				BoardID:     boardID,
+				Limit:       50,
+				Offset:      0,
+				Category:    catFilter,
+				SearchQuery: searchQuery,
 			})
 			if err != nil {
 				return errMsg{err: fmt.Errorf("loading new posts: %w", err)}
@@ -669,12 +697,70 @@ func (m *Model) cycleCategoryFilter() {
 }
 
 func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
+	if m.searchFocused {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "enter":
+				m.searchQuery = strings.TrimSpace(m.searchInput.Value())
+				m.searchFocused = false
+				m.searchInput.Blur()
+				m.postCursor = 0
+				if m.searchQuery != "" {
+					m.flashMsg = fmt.Sprintf("• Searching for %q", m.searchQuery)
+				} else {
+					m.flashMsg = "• Search cleared"
+				}
+				if m.currentBoard != nil {
+					return m, m.loadPostsCmd(m.currentBoard.ID)
+				}
+				return m, nil
+			case "esc":
+				m.searchFocused = false
+				m.searchInput.Blur()
+				if m.searchQuery != "" {
+					m.searchQuery = ""
+					m.searchInput.SetValue("")
+					m.postCursor = 0
+					m.flashMsg = "• Search cleared"
+					if m.currentBoard != nil {
+						return m, m.loadPostsCmd(m.currentBoard.ID)
+					}
+				}
+				return m, nil
+			case "down", "tab":
+				m.searchFocused = false
+				m.searchInput.Blur()
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.searchInput, cmd = m.searchInput.Update(msg)
+				return m, cmd
+			}
+		}
+		return m, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case msg.String() == "/":
+			m.searchFocused = true
+			m.searchInput.Focus()
+			return m, textinput.Blink
 		case msg.String() == "q":
 			return m, tea.Quit
 		case msg.String() == "esc":
+			if m.searchQuery != "" {
+				m.searchQuery = ""
+				m.searchInput.SetValue("")
+				m.postCursor = 0
+				m.flashMsg = "• Search cleared"
+				if m.currentBoard != nil {
+					return m, m.loadPostsCmd(m.currentBoard.ID)
+				}
+				return m, nil
+			}
 			m.currentView = viewBoardList
 			return m, m.animTickCmd()
 		case msg.String() == "k" || msg.String() == "up":
@@ -846,15 +932,23 @@ func (m *Model) resizeInputs() {
 	m.bodyInput.SetWidth(inputWidth)
 	m.commentInput.SetWidth(inputWidth)
 
-	bodyHeight := 8
-	if m.height > 0 {
-		bodyHeight = min(12, max(4, m.height-18))
+	searchW := 36
+	if m.width > 0 {
+		searchW = min(50, max(24, m.width/2))
+	}
+	m.searchInput.Width = searchW
+
+	_, _, _, contentHeight := m.shellDimensions()
+
+	bodyHeight := 3
+	if contentHeight > 16 {
+		bodyHeight = min(10, max(3, contentHeight-16))
 	}
 	m.bodyInput.SetHeight(bodyHeight)
 
 	commHeight := 6
-	if m.height > 0 {
-		commHeight = min(10, max(4, m.height-16))
+	if contentHeight > 8 {
+		commHeight = min(8, max(3, contentHeight-8))
 	}
 	m.commentInput.SetHeight(commHeight)
 }

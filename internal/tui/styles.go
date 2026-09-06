@@ -60,7 +60,7 @@ var (
 			Foreground(currentTheme.Upvote).
 			Bold(true).
 			Width(5).
-			Align(lipgloss.Right)
+			Align(lipgloss.Center)
 
 	styleVoteNeutral = lipgloss.NewStyle().
 				Foreground(currentTheme.TextDim).
@@ -112,6 +112,28 @@ var (
 	styleSortPill = lipgloss.NewStyle().
 			Foreground(currentTheme.TextDim).
 			Italic(true)
+
+	styleSearchBar = lipgloss.NewStyle().
+			Foreground(currentTheme.TextMuted)
+
+	styleSearchBarActive = lipgloss.NewStyle().
+			Foreground(currentTheme.Primary).
+			Bold(true)
+
+	styleSearchBarFiltered = lipgloss.NewStyle().
+			Foreground(currentTheme.Accent).
+			Bold(true)
+
+	styleFilterPrompt = lipgloss.NewStyle().
+			Foreground(currentTheme.Primary).
+			Bold(true)
+
+	styleFilterQuery = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true)
+
+	styleFilterHint = lipgloss.NewStyle().
+			Foreground(currentTheme.TextDim)
 )
 
 // Threaded Comment Styles
@@ -159,8 +181,7 @@ var (
 	styleModalCard = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(currentTheme.Border).
-			Padding(1, 2).
-			Background(currentTheme.CardBg)
+			Padding(1, 2)
 
 	styleCharCount = lipgloss.NewStyle().
 			Foreground(currentTheme.TextDim)

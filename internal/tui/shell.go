@@ -81,9 +81,18 @@ func (m *Model) renderAppShell(contextTitle string, content string, shortcuts []
 		return shellBox
 	}
 
+	vAlign := lipgloss.Center
+	if lipgloss.Height(shellBox) >= m.height {
+		vAlign = lipgloss.Top
+	}
+	hAlign := lipgloss.Center
+	if lipgloss.Width(shellBox) >= m.width {
+		hAlign = lipgloss.Left
+	}
+
 	return lipgloss.Place(
 		m.width, m.height,
-		lipgloss.Center, lipgloss.Center,
+		hAlign, vAlign,
 		shellBox,
 	)
 }

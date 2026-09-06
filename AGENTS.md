@@ -134,4 +134,25 @@ This workspace operates under a collaborative ensemble of specialized autonomous
 }
 ```
 
+---
+
+## 7. Subagent: `backend-db-auditor`
+
+**Role**: Database & Backend Integrity Auditor  
+**Scope**: Schema consistency, foreign key indexing, transactional boundaries, ACID compliance, race condition detection, backend security vulnerabilities, SQL performance optimization, and connection pool budgeting.
+
+### Important Operating Policies for `backend-db-auditor`:
+1. **Explicit Invocation Only**: Do **NOT** invoke `backend-db-auditor` automatically after routine changes, builds, or migrations. Invoke `backend-db-auditor` **ONLY** when the user explicitly requests a database audit, backend consistency review, or security assessment.
+2. **Read-Only / Non-Destructive**: The auditor inspects schemas, queries, and Go backend code. It must never perform destructive database operations (`DROP`, `TRUNCATE`, `DELETE`).
+3. **Actionable Structured Reports**: All findings must be categorized by severity (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW/ADVISORY`) with concrete file/line references, exploit/impact scenarios, and practical remediation code or SQL diffs.
+
+```json
+{
+  "TypeName": "backend-db-auditor",
+  "Role": "Database & Backend Integrity Auditor",
+  "Prompt": "Audit the database schema, sqlc queries, transactional integrity, and backend security vulnerabilities across migrations and internal/db/."
+}
+```
+
+
 

@@ -191,8 +191,8 @@ func TestCommentOPBadgeAndSelection(t *testing.T) {
 	// 1. Root post selected by default
 	m.commentCursor = -1
 	contentRoot := m.renderPostDetailContent()
-	if !strings.Contains(contentRoot, "post selected (r to reply)") {
-		t.Errorf("expected root post selection indicator")
+	if !strings.Contains(contentRoot, "▌") {
+		t.Errorf("expected root post selection indicator ▌")
 	}
 	if !strings.Contains(contentRoot, "[OP]") {
 		t.Errorf("expected [OP] badge on alice's comment")
@@ -201,11 +201,8 @@ func TestCommentOPBadgeAndSelection(t *testing.T) {
 	// 2. Select comment 0 (alice, OP)
 	m.commentCursor = 0
 	contentComm0 := m.renderPostDetailContent()
-	if !strings.Contains(contentComm0, "selected (r to reply)") {
-		t.Errorf("expected comment selection pill")
-	}
 	if !strings.Contains(contentComm0, "▌") {
-		t.Errorf("expected selection bar indicator ▌")
+		t.Errorf("expected selection bar indicator ▌ on selected comment")
 	}
 
 	// 3. Select comment 1 (bob)
@@ -349,7 +346,15 @@ func TestInspectCreationViews(t *testing.T) {
 	postView := m.viewNewPost()
 	t.Logf("=== viewNewPost ===\n%s\n", postView)
 
-	for i, l := range strings.Split(postView, "\n") {
+	lines := strings.Split(postView, "\n")
+	if len(lines) > 24 {
+		t.Fatalf("expected viewNewPost to fit within 24 lines, got %d lines", len(lines))
+	}
+	if !strings.Contains(lines[0], "ReadIT") {
+		t.Fatalf("expected header 'ReadIT' on line 0 (top not cut off), got %q", lines[0])
+	}
+
+	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
 		if trimmed == "─╮" || trimmed == "─╯" {
 			t.Fatalf("found broken wrapped border on line %d: %q", i, l)
@@ -361,7 +366,15 @@ func TestInspectCreationViews(t *testing.T) {
 	commView := m.viewNewComment()
 	t.Logf("=== viewNewComment ===\n%s\n", commView)
 
-	for i, l := range strings.Split(commView, "\n") {
+	commLines := strings.Split(commView, "\n")
+	if len(commLines) > 24 {
+		t.Fatalf("expected viewNewComment to fit within 24 lines, got %d lines", len(commLines))
+	}
+	if !strings.Contains(commLines[0], "ReadIT") {
+		t.Fatalf("expected header 'ReadIT' on line 0 for comment modal, got %q", commLines[0])
+	}
+
+	for i, l := range commLines {
 		trimmed := strings.TrimSpace(l)
 		if trimmed == "─╮" || trimmed == "─╯" {
 			t.Fatalf("found broken wrapped border on line %d: %q", i, l)
@@ -550,6 +563,129 @@ func TestPostListSelectionNeverShiftsHorizontally(t *testing.T) {
 		t.Errorf("view contains unwanted slate-blue background color escape sequence")
 	}
 }
+
+func TestRenderThreeColumnHeader(t *testing.T) {
+	left := "Ask anything"
+	center := "[ / search posts... ]"
+	right := "5 discussions • [s] hot • [c] all"
+
+	// Wide screen: should fit within 120
+	wide := renderThreeColumnHeader(left, center, right, 120)
+	if lipgloss.Width(wide) > 120 {
+		t.Errorf("expected wide header width <= 120, got %d", lipgloss.Width(wide))
+	}
+	if !strings.Contains(wide, left) || !strings.Contains(wide, center) || !strings.Contains(wide, right) {
+		t.Errorf("wide header missing components: %q", wide)
+	}
+
+	// Medium screen: 80
+	med := renderThreeColumnHeader(left, center, right, 80)
+	if lipgloss.Width(med) > 80 {
+		t.Errorf("expected medium header width <= 80, got %d", lipgloss.Width(med))
+	}
+}
+
+func TestPostListSearchBarAndDescriptionHeader(t *testing.T) {
+	m := NewModel(context.Background(), nil, "test-fp", nil)
+	m.width = 100
+	m.height = 30
+	m.currentView = viewPostList
+	m.currentBoard = &db.Board{Slug: "ask", Description: "Ask the community anything"}
+	m.posts = []PostFeedItem{
+		{
+			ID:           1,
+			Title:        "How to use goroutines?",
+			AuthorHandle: "alice",
+			Category:     "question",
+		},
+	}
+	m.resizeInputs()
+
+	view := m.viewPostList()
+
+	// 1. Verify /b/ask is NOT on the left subheader banner
+	// Subheader is around line 2 or 3 (below shell header and separator)
+	lines := strings.Split(view, "\n")
+	var subheader string
+	for _, l := range lines {
+		if strings.Contains(l, "Ask the community anything") {
+			subheader = l
+			break
+		}
+	}
+	if subheader == "" {
+		t.Fatalf("could not find subheader line with description in view:\n%s", view)
+	}
+
+	// Verify "Ask the community anything" is shifted to the left and not prefixed with "/b/ask"
+	cleanSub := sanitize.Text(subheader)
+	if strings.Contains(cleanSub, "/b/ask  ·") || strings.Contains(cleanSub, "/b/ask ·") {
+		t.Errorf("expected /b/ask to be removed from subheader left side, got: %q", cleanSub)
+	}
+
+	// 2. Verify dedicated search bar appears when focused
+	m.searchFocused = true
+	viewFocused := m.viewPostList()
+	if !strings.Contains(viewFocused, "/ filter:") {
+		t.Errorf("expected dedicated search filter row when focused, got:\n%s", viewFocused)
+	}
+
+	// 3. Test active search filter display (zero emojis)
+	m.searchFocused = false
+	m.searchQuery = "goroutines"
+	searchView := m.viewPostList()
+	if !strings.Contains(searchView, `filter: "goroutines"`) {
+		t.Errorf("expected active query in search view, got:\n%s", searchView)
+	}
+	if !strings.Contains(searchView, "1 matches") {
+		t.Errorf("expected '1 matches' in search view, got:\n%s", searchView)
+	}
+}
+
+func TestPostListSearchNavigationAndClear(t *testing.T) {
+	m := NewModel(context.Background(), nil, "test-fp", nil)
+	m.width = 100
+	m.height = 30
+	m.currentBoard = &db.Board{ID: 1, Slug: "golang", Description: "Go Language"}
+	m.currentView = viewPostList
+
+	// 1. Pressing '/' should focus searchInput
+	m.updatePostList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.searchFocused {
+		t.Fatalf("expected searchFocused to be true after pressing '/'")
+	}
+
+	// 2. Typing into search input
+	m.updatePostList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c', 'h', 'a', 'n'}})
+	if m.searchInput.Value() != "chan" {
+		t.Errorf("expected searchInput value 'chan', got %q", m.searchInput.Value())
+	}
+
+	// 3. Pressing Enter commits search query
+	m.updatePostList(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.searchFocused {
+		t.Errorf("expected searchFocused to be false after pressing Enter")
+	}
+	if m.searchQuery != "chan" {
+		t.Errorf("expected searchQuery 'chan', got %q", m.searchQuery)
+	}
+
+	// 4. Pressing Esc clears the search query
+	m.updatePostList(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.searchQuery != "" {
+		t.Errorf("expected searchQuery to be cleared after Esc, got %q", m.searchQuery)
+	}
+	if m.currentView != viewPostList {
+		t.Errorf("expected to stay in viewPostList after first Esc (clearing search), got %v", m.currentView)
+	}
+
+	// 5. Pressing Esc again returns to viewBoardList
+	m.updatePostList(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.currentView != viewBoardList {
+		t.Errorf("expected viewBoardList after second Esc, got %v", m.currentView)
+	}
+}
+
 
 
 

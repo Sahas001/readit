@@ -16,6 +16,7 @@ JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
   AND (sqlc.arg(category)::TEXT = '' OR p.category = sqlc.arg(category))
+  AND (sqlc.arg(search_query)::TEXT = '' OR (p.title ILIKE '%' || sqlc.arg(search_query)::TEXT || '%' OR p.body ILIKE '%' || sqlc.arg(search_query)::TEXT || '%'))
 ORDER BY (
     (p.score + 1)::FLOAT / POWER(GREATEST(1.0, EXTRACT(EPOCH FROM (now() - p.created_at))/3600.0 + 2.0), 1.5)
 ) DESC, p.created_at DESC
@@ -39,6 +40,7 @@ JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
   AND (sqlc.arg(category)::TEXT = '' OR p.category = sqlc.arg(category))
+  AND (sqlc.arg(search_query)::TEXT = '' OR (p.title ILIKE '%' || sqlc.arg(search_query)::TEXT || '%' OR p.body ILIKE '%' || sqlc.arg(search_query)::TEXT || '%'))
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -60,6 +62,7 @@ JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
   AND (sqlc.arg(category)::TEXT = '' OR p.category = sqlc.arg(category))
+  AND (sqlc.arg(search_query)::TEXT = '' OR (p.title ILIKE '%' || sqlc.arg(search_query)::TEXT || '%' OR p.body ILIKE '%' || sqlc.arg(search_query)::TEXT || '%'))
 ORDER BY p.score DESC, p.created_at DESC
 LIMIT $2 OFFSET $3;
 
