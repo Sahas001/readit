@@ -1,3 +1,26 @@
+-- name: ListPostsByBoardHot :many
+SELECT
+    p.id,
+    p.board_id,
+    p.author_id,
+    p.title,
+    p.url,
+    p.score,
+    p.comment_count,
+    p.created_at,
+    p.is_deleted,
+    p.category,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
+FROM posts p
+JOIN users u ON u.id = p.author_id
+WHERE p.board_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND (sqlc.arg(category)::TEXT = '' OR p.category = sqlc.arg(category))
+ORDER BY (
+    (p.score + 1)::FLOAT / POWER(GREATEST(1.0, EXTRACT(EPOCH FROM (now() - p.created_at))/3600.0 + 2.0), 1.5)
+) DESC, p.created_at DESC
+LIMIT $2 OFFSET $3;
+
 -- name: ListPostsByBoardNew :many
 SELECT
     p.id,
@@ -9,10 +32,13 @@ SELECT
     p.comment_count,
     p.created_at,
     p.is_deleted,
+    p.category,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
+WHERE p.board_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND (sqlc.arg(category)::TEXT = '' OR p.category = sqlc.arg(category))
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -27,10 +53,13 @@ SELECT
     p.comment_count,
     p.created_at,
     p.is_deleted,
+    p.category,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
+WHERE p.board_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND (sqlc.arg(category)::TEXT = '' OR p.category = sqlc.arg(category))
 ORDER BY p.score DESC, p.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -47,6 +76,7 @@ SELECT
     p.created_at,
     p.updated_at,
     p.is_deleted,
+    p.category,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
     b.slug   AS board_slug
 FROM posts p
@@ -55,8 +85,8 @@ JOIN boards b ON b.id = p.board_id
 WHERE p.id = $1;
 
 -- name: CreatePost :one
-INSERT INTO posts (board_id, author_id, title, body, url)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO posts (board_id, author_id, title, body, url, category)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: IncrementPostCommentCount :exec

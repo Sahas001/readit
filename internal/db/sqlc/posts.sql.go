@@ -12,9 +12,9 @@ import (
 )
 
 const createPost = `-- name: CreatePost :one
-INSERT INTO posts (board_id, author_id, title, body, url)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, board_id, author_id, title, body, url, score, comment_count, created_at, updated_at, is_deleted, deleted_at
+INSERT INTO posts (board_id, author_id, title, body, url, category)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, board_id, author_id, title, body, url, score, comment_count, created_at, updated_at, is_deleted, deleted_at, category
 `
 
 type CreatePostParams struct {
@@ -23,6 +23,7 @@ type CreatePostParams struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
 	Url      string `json:"url"`
+	Category string `json:"category"`
 }
 
 func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, error) {
@@ -32,6 +33,7 @@ func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, e
 		arg.Title,
 		arg.Body,
 		arg.Url,
+		arg.Category,
 	)
 	var i Post
 	err := row.Scan(
@@ -47,6 +49,7 @@ func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, e
 		&i.UpdatedAt,
 		&i.IsDeleted,
 		&i.DeletedAt,
+		&i.Category,
 	)
 	return i, err
 }
@@ -73,6 +76,7 @@ SELECT
     p.created_at,
     p.updated_at,
     p.is_deleted,
+    p.category,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle,
     b.slug   AS board_slug
 FROM posts p
@@ -93,6 +97,7 @@ type GetPostByIDRow struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	IsDeleted    bool               `json:"is_deleted"`
+	Category     string             `json:"category"`
 	AuthorHandle string             `json:"author_handle"`
 	BoardSlug    string             `json:"board_slug"`
 }
@@ -112,6 +117,7 @@ func (q *Queries) GetPostByID(ctx context.Context, id int64) (GetPostByIDRow, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.IsDeleted,
+		&i.Category,
 		&i.AuthorHandle,
 		&i.BoardSlug,
 	)
@@ -155,6 +161,88 @@ func (q *Queries) IncrementPostCommentCount(ctx context.Context, id int64) error
 	return err
 }
 
+const listPostsByBoardHot = `-- name: ListPostsByBoardHot :many
+SELECT
+    p.id,
+    p.board_id,
+    p.author_id,
+    p.title,
+    p.url,
+    p.score,
+    p.comment_count,
+    p.created_at,
+    p.is_deleted,
+    p.category,
+    (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
+FROM posts p
+JOIN users u ON u.id = p.author_id
+WHERE p.board_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND ($4::TEXT = '' OR p.category = $4)
+ORDER BY (
+    (p.score + 1)::FLOAT / POWER(GREATEST(1.0, EXTRACT(EPOCH FROM (now() - p.created_at))/3600.0 + 2.0), 1.5)
+) DESC, p.created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListPostsByBoardHotParams struct {
+	BoardID  int64  `json:"board_id"`
+	Limit    int32  `json:"limit"`
+	Offset   int32  `json:"offset"`
+	Category string `json:"category"`
+}
+
+type ListPostsByBoardHotRow struct {
+	ID           int64              `json:"id"`
+	BoardID      int64              `json:"board_id"`
+	AuthorID     int64              `json:"author_id"`
+	Title        string             `json:"title"`
+	Url          string             `json:"url"`
+	Score        int32              `json:"score"`
+	CommentCount int32              `json:"comment_count"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	IsDeleted    bool               `json:"is_deleted"`
+	Category     string             `json:"category"`
+	AuthorHandle string             `json:"author_handle"`
+}
+
+func (q *Queries) ListPostsByBoardHot(ctx context.Context, arg ListPostsByBoardHotParams) ([]ListPostsByBoardHotRow, error) {
+	rows, err := q.db.Query(ctx, listPostsByBoardHot,
+		arg.BoardID,
+		arg.Limit,
+		arg.Offset,
+		arg.Category,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPostsByBoardHotRow{}
+	for rows.Next() {
+		var i ListPostsByBoardHotRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BoardID,
+			&i.AuthorID,
+			&i.Title,
+			&i.Url,
+			&i.Score,
+			&i.CommentCount,
+			&i.CreatedAt,
+			&i.IsDeleted,
+			&i.Category,
+			&i.AuthorHandle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPostsByBoardNew = `-- name: ListPostsByBoardNew :many
 SELECT
     p.id,
@@ -166,18 +254,22 @@ SELECT
     p.comment_count,
     p.created_at,
     p.is_deleted,
+    p.category,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
+WHERE p.board_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND ($4::TEXT = '' OR p.category = $4)
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 type ListPostsByBoardNewParams struct {
-	BoardID int64 `json:"board_id"`
-	Limit   int32 `json:"limit"`
-	Offset  int32 `json:"offset"`
+	BoardID  int64  `json:"board_id"`
+	Limit    int32  `json:"limit"`
+	Offset   int32  `json:"offset"`
+	Category string `json:"category"`
 }
 
 type ListPostsByBoardNewRow struct {
@@ -190,11 +282,17 @@ type ListPostsByBoardNewRow struct {
 	CommentCount int32              `json:"comment_count"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	IsDeleted    bool               `json:"is_deleted"`
+	Category     string             `json:"category"`
 	AuthorHandle string             `json:"author_handle"`
 }
 
 func (q *Queries) ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardNewParams) ([]ListPostsByBoardNewRow, error) {
-	rows, err := q.db.Query(ctx, listPostsByBoardNew, arg.BoardID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listPostsByBoardNew,
+		arg.BoardID,
+		arg.Limit,
+		arg.Offset,
+		arg.Category,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +310,7 @@ func (q *Queries) ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardN
 			&i.CommentCount,
 			&i.CreatedAt,
 			&i.IsDeleted,
+			&i.Category,
 			&i.AuthorHandle,
 		); err != nil {
 			return nil, err
@@ -235,18 +334,22 @@ SELECT
     p.comment_count,
     p.created_at,
     p.is_deleted,
+    p.category,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
-WHERE p.board_id = $1 AND (p.is_deleted = FALSE OR p.comment_count > 0)
+WHERE p.board_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND ($4::TEXT = '' OR p.category = $4)
 ORDER BY p.score DESC, p.created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 type ListPostsByBoardTopParams struct {
-	BoardID int64 `json:"board_id"`
-	Limit   int32 `json:"limit"`
-	Offset  int32 `json:"offset"`
+	BoardID  int64  `json:"board_id"`
+	Limit    int32  `json:"limit"`
+	Offset   int32  `json:"offset"`
+	Category string `json:"category"`
 }
 
 type ListPostsByBoardTopRow struct {
@@ -259,11 +362,17 @@ type ListPostsByBoardTopRow struct {
 	CommentCount int32              `json:"comment_count"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	IsDeleted    bool               `json:"is_deleted"`
+	Category     string             `json:"category"`
 	AuthorHandle string             `json:"author_handle"`
 }
 
 func (q *Queries) ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardTopParams) ([]ListPostsByBoardTopRow, error) {
-	rows, err := q.db.Query(ctx, listPostsByBoardTop, arg.BoardID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listPostsByBoardTop,
+		arg.BoardID,
+		arg.Limit,
+		arg.Offset,
+		arg.Category,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -281,6 +390,7 @@ func (q *Queries) ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardT
 			&i.CommentCount,
 			&i.CreatedAt,
 			&i.IsDeleted,
+			&i.Category,
 			&i.AuthorHandle,
 		); err != nil {
 			return nil, err

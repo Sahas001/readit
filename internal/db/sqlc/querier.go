@@ -32,6 +32,7 @@ type Querier interface {
 	HasPostComments(ctx context.Context, postID int64) (bool, error)
 	IncrementPostCommentCount(ctx context.Context, id int64) error
 	ListBoards(ctx context.Context) ([]Board, error)
+	ListPostsByBoardHot(ctx context.Context, arg ListPostsByBoardHotParams) ([]ListPostsByBoardHotRow, error)
 	ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardNewParams) ([]ListPostsByBoardNewRow, error)
 	ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardTopParams) ([]ListPostsByBoardTopRow, error)
 	PruneAllEmptyDeletedPosts(ctx context.Context) error

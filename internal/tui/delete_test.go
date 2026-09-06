@@ -14,13 +14,14 @@ func TestDeleteKeyTriggersConfirmationForAuthorOnly(t *testing.T) {
 		height:      30,
 		currentView: viewPostList,
 		user:        &db.User{ID: 42, Handle: "alice"},
-		posts: []db.ListPostsByBoardNewRow{
+		posts: []PostFeedItem{
 			{
 				ID:           1,
 				AuthorID:     42, // authored by alice
 				AuthorHandle: "alice",
 				Title:        "Alice's Post",
 				CommentCount: 0,
+				Category:     "general",
 			},
 			{
 				ID:           2,
@@ -28,6 +29,7 @@ func TestDeleteKeyTriggersConfirmationForAuthorOnly(t *testing.T) {
 				AuthorHandle: "bob",
 				Title:        "Bob's Post",
 				CommentCount: 3,
+				Category:     "general",
 			},
 		},
 	}
@@ -236,13 +238,14 @@ func TestSoftDeletedPostWithCommentsRenderedInFeed(t *testing.T) {
 		height:       24,
 		currentView:  viewPostList,
 		currentBoard: &db.Board{Slug: "general"},
-		posts: []db.ListPostsByBoardNewRow{
+		posts: []PostFeedItem{
 			{
 				ID:           1,
 				Title:        "Active Post",
 				AuthorHandle: "alice",
 				CommentCount: 5,
 				IsDeleted:    false,
+				Category:     "general",
 			},
 			{
 				ID:           2,
@@ -250,6 +253,7 @@ func TestSoftDeletedPostWithCommentsRenderedInFeed(t *testing.T) {
 				AuthorHandle: "[deleted]",
 				CommentCount: 3,
 				IsDeleted:    true,
+				Category:     "general",
 			},
 		},
 	}

@@ -225,16 +225,29 @@ func TestNewPostFormNavigation(t *testing.T) {
 		t.Fatalf("expected initial focus 0 (Title), got %d", m.postFormFocus)
 	}
 
-	// Press Enter on Title -> advances to URL (focus 1)
+	// Press Enter on Title -> advances to Category (focus 1)
 	m.updateNewPost(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.postFormFocus != 1 {
-		t.Errorf("expected focus 1 (URL) after enter, got %d", m.postFormFocus)
+		t.Errorf("expected focus 1 (Category) after enter, got %d", m.postFormFocus)
 	}
 
-	// Press Enter on URL -> advances to Body (focus 2)
+	// Test category cycling with space while on focus 1
+	initialCat := m.newPostCategoryIdx
+	m.updateNewPost(tea.KeyMsg{Type: tea.KeySpace})
+	if m.newPostCategoryIdx != (initialCat+1)%len(AvailableCategories) {
+		t.Errorf("expected category index incremented on space, got %d", m.newPostCategoryIdx)
+	}
+
+	// Press Enter on Category -> advances to URL (focus 2)
 	m.updateNewPost(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.postFormFocus != 2 {
-		t.Errorf("expected focus 2 (Body) after enter, got %d", m.postFormFocus)
+		t.Errorf("expected focus 2 (URL) after enter, got %d", m.postFormFocus)
+	}
+
+	// Press Enter on URL -> advances to Body (focus 3)
+	m.updateNewPost(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.postFormFocus != 3 {
+		t.Errorf("expected focus 3 (Body) after enter, got %d", m.postFormFocus)
 	}
 
 	// Press Tab on Body -> cycles to Title (focus 0)
@@ -243,10 +256,10 @@ func TestNewPostFormNavigation(t *testing.T) {
 		t.Errorf("expected focus 0 (Title) after tab, got %d", m.postFormFocus)
 	}
 
-	// Press Shift+Tab on Title -> cycles back to Body (focus 2)
+	// Press Shift+Tab on Title -> cycles back to Body (focus 3)
 	m.updateNewPost(tea.KeyMsg{Type: tea.KeyShiftTab})
-	if m.postFormFocus != 2 {
-		t.Errorf("expected focus 2 (Body) after shift+tab, got %d", m.postFormFocus)
+	if m.postFormFocus != 3 {
+		t.Errorf("expected focus 3 (Body) after shift+tab, got %d", m.postFormFocus)
 	}
 }
 
@@ -313,10 +326,11 @@ func TestDimensionGuards(t *testing.T) {
 	}
 
 	m.currentBoard = &m.boards[0]
-	m.posts = []db.ListPostsByBoardNewRow{{
+	m.posts = []PostFeedItem{{
 		ID:           1,
 		Title:        "Post 1",
 		AuthorHandle: "alice",
+		Category:     "general",
 		CreatedAt:    pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	}}
 	vPosts := m.viewPostList()
@@ -373,7 +387,7 @@ func TestVoteRemovalAndStatePreservation(t *testing.T) {
 
 	// Test preservation of postCursor on postsLoadedMsg
 	m.postCursor = 3
-	m.Update(postsLoadedMsg{posts: []db.ListPostsByBoardNewRow{
+	m.Update(postsLoadedMsg{posts: []PostFeedItem{
 		{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}, {ID: 5},
 	}})
 	if m.postCursor != 3 {
@@ -473,13 +487,14 @@ func TestPostListSelectionNeverShiftsHorizontally(t *testing.T) {
 		height:       30,
 		currentView:  viewPostList,
 		currentBoard: &db.Board{Slug: "ask", Description: "Ask anything"},
-		posts: []db.ListPostsByBoardNewRow{
+		posts: []PostFeedItem{
 			{
 				ID:           1,
 				Title:        "Short Title",
 				AuthorHandle: "alice",
 				Score:        5,
 				CommentCount: 2,
+				Category:     "general",
 			},
 			{
 				ID:           2,
@@ -487,6 +502,7 @@ func TestPostListSelectionNeverShiftsHorizontally(t *testing.T) {
 				AuthorHandle: "bob",
 				Score:        10,
 				CommentCount: 8,
+				Category:     "general",
 			},
 		},
 	}

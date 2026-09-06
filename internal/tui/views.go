@@ -140,8 +140,14 @@ func (m *Model) viewPostList() string {
 	if boardDesc != "" {
 		boardBanner += "  ·  " + boardDesc
 	}
-	countStr := fmt.Sprintf("%d discussions  •  newest", len(m.posts))
-	headerRow := renderFormLabel(styleTitle.Render(boardBanner), styleSortPill.Render(countStr), contentWidth)
+	countStr := fmt.Sprintf("%d discussions", len(m.posts))
+	sortBadge := fmt.Sprintf("[s] %s", m.postSortMode.String())
+	filterBadge := "[c] all"
+	if m.categoryFilter != "" {
+		filterBadge = fmt.Sprintf("[c] %s", m.categoryFilter)
+	}
+	infoStr := fmt.Sprintf("%s  •  %s  •  %s", countStr, sortBadge, filterBadge)
+	headerRow := renderFormLabel(styleTitle.Render(boardBanner), styleSortPill.Render(infoStr), contentWidth)
 	content.WriteString(headerRow + "\n")
 	content.WriteString(styleRule.Render(strings.Repeat("─", contentWidth)) + "\n\n")
 
@@ -196,11 +202,19 @@ func (m *Model) viewPostList() string {
 			}
 			commentsStr := fmt.Sprintf("%d comments", post.CommentCount)
 
+			categoryStr := ""
+			if !post.IsDeleted && post.Category != "" {
+				categoryStr = styleCategoryBadge(post.Category).Render("[" + post.Category + "]")
+			}
+
 			metaLine := fmt.Sprintf("%s • %s • %s",
 				styleMetaAuthor.Render(authorStr),
 				styleMeta.Render(timeStr),
 				styleMeta.Render(commentsStr),
 			)
+			if categoryStr != "" {
+				metaLine += " • " + categoryStr
+			}
 			if !post.IsDeleted && post.Url != "" {
 				metaLine += " • " + styleLinkBadge.Render("link")
 			}
@@ -222,6 +236,8 @@ func (m *Model) viewPostList() string {
 	shortcuts := [][2]string{
 		{"j/k", "move"},
 		{"enter", "view"},
+		{"s", "sort"},
+		{"c", "flair"},
 		{"u/d", "vote"},
 		{"n", "new post"},
 		{"x", "delete"},
@@ -244,6 +260,7 @@ func (m *Model) viewPostDetail() string {
 		{"j/k", "navigate"},
 		{"r", "reply"},
 		{"R", "reply root"},
+		{"s", "sort"},
 		{"u/d", "vote"},
 		{"x", "delete"},
 		{"g/G", "top/end"},
@@ -290,6 +307,9 @@ func (m *Model) renderPostDetailContent() string {
 
 	timeStr := styleSubtitle.Render(relativeTime(p.CreatedAt.Time))
 	meta := fmt.Sprintf("Posted by %s • %s", author, timeStr)
+	if !p.IsDeleted && p.Category != "" {
+		meta += " • " + styleCategoryBadge(p.Category).Render("["+p.Category+"]")
+	}
 	if p.IsDeleted {
 		meta += " • " + lipgloss.NewStyle().Foreground(currentTheme.Upvote).Italic(true).Render("(deleted)")
 	}
@@ -324,7 +344,11 @@ func (m *Model) renderPostDetailContent() string {
 
 	// 3. Comments Header
 	commentCount := len(m.comments)
-	b.WriteString(fmt.Sprintf("  Comments (%d)   •   [r: reply to selected • R: reply to post]\n", commentCount))
+	commentHeader := fmt.Sprintf("  Comments (%d)   •   [s] sort: %s", commentCount, m.commentSortMode.String())
+	if contentWidth >= 65 {
+		commentHeader += "   •   [r: reply • R: reply to post]"
+	}
+	b.WriteString(commentHeader + "\n")
 	b.WriteString(styleRule.Render(strings.Repeat("─", max(10, contentWidth-4))) + "\n\n")
 
 	if commentCount == 0 {
@@ -433,9 +457,31 @@ func (m *Model) viewNewPost() string {
 	f.WriteString(renderFormLabel(titleLabel, titleCount, contentWidth) + "\n")
 	f.WriteString(titleStyle.Width(inputWidth).Render(m.titleInput.View()) + "\n\n")
 
-	// URL Input + Counter
-	urlStyle := styleInputBlurred
+	// Flair / Category Selector (Focus 1)
+	catLabel := styleSubtitle.Render("Flair / Category (h/l or ←/→ to cycle):")
+	var catPills strings.Builder
+	for idx, cat := range AvailableCategories {
+		isSelectedCat := (idx == m.newPostCategoryIdx)
+		if isSelectedCat {
+			if m.postFormFocus == 1 {
+				catPills.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(currentTheme.Primary).Bold(true).Render(" " + cat + " ") + " ")
+			} else {
+				catPills.WriteString(styleCategoryBadge(cat).Bold(true).Underline(true).Render("[" + cat + "]") + " ")
+			}
+		} else {
+			catPills.WriteString(lipgloss.NewStyle().Foreground(currentTheme.TextDim).Render("[" + cat + "]") + " ")
+		}
+	}
+	f.WriteString(catLabel + "\n")
+	catBoxStyle := styleInputBlurred
 	if m.postFormFocus == 1 {
+		catBoxStyle = styleInputFocused
+	}
+	f.WriteString(catBoxStyle.Width(inputWidth).Render(strings.TrimSpace(catPills.String())) + "\n\n")
+
+	// URL Input + Counter (Focus 2)
+	urlStyle := styleInputBlurred
+	if m.postFormFocus == 2 {
 		urlStyle = styleInputFocused
 	}
 	urlLen := len([]rune(m.urlInput.Value()))
@@ -445,9 +491,9 @@ func (m *Model) viewNewPost() string {
 	f.WriteString(renderFormLabel(urlLabel, urlCount, contentWidth) + "\n")
 	f.WriteString(urlStyle.Width(inputWidth).Render(m.urlInput.View()) + "\n\n")
 
-	// Body Input + Counter
+	// Body Input + Counter (Focus 3)
 	bodyStyle := styleInputBlurred
-	if m.postFormFocus == 2 {
+	if m.postFormFocus == 3 {
 		bodyStyle = styleInputFocused
 	}
 	bodyLen := len([]rune(m.bodyInput.Value()))
@@ -471,6 +517,7 @@ func (m *Model) viewNewPost() string {
 	shortcuts := [][2]string{
 		{"enter/tab", "next"},
 		{"shift+tab", "prev"},
+		{"h/l", "flair"},
 		{"ctrl+s", "publish"},
 		{"esc", "cancel"},
 	}

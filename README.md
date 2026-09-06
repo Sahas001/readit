@@ -96,14 +96,18 @@ Compose new posts and replies using floating modal dialogs with nested input box
 | **Navigation** | `G` / `End` | Jump to bottom of list or thread |
 | **Board List** | `Enter` | Enter selected board |
 | **Post Feed** | `Enter` | View discussion thread & comments |
+| **Post Feed** | `s` | Cycle feed sort order (`hot` → `new` → `top`) |
+| **Post Feed** | `c` | Cycle flair filter (`all` → `general` → `discussion` → `question` → `showcase` → `guide` → `news`) |
 | **Post Feed** | `n` | Create new discussion in active board |
 | **Post / Comment** | `x` | Delete post or comment (confirmation modal) |
 | **Voting** | `u` | Upvote post or comment (press again to reset to 0) |
 | **Voting** | `d` | Downvote post or comment (press again to reset to 0) |
+| **Discussion** | `s` | Cycle comment sort order (`top` → `new` → `old`) |
 | **Discussion** | `r` | Reply to currently highlighted comment |
 | **Discussion** | `R` | Reply directly to root post |
 | **Forms / Modals** | `Enter` / `Tab` | Advance to next field |
 | **Forms / Modals** | `Shift+Tab` | Return to previous field |
+| **Forms / Modals** | `h` / `l` or `←` / `→` / `Space` | Cycle category / flair selector |
 | **Forms / Modals** | `Ctrl+S` | Submit and publish |
 
 ---

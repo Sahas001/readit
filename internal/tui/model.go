@@ -83,9 +83,11 @@ type Model struct {
 	boardCursor int
 
 	// Post list.
-	currentBoard *db.Board
-	posts        []db.ListPostsByBoardNewRow
-	postCursor   int
+	currentBoard   *db.Board
+	posts          []PostFeedItem
+	postCursor     int
+	postSortMode   PostSortMode
+	categoryFilter string // "" for all, or category name
 
 	// Post detail & comments.
 	currentPost        *db.GetPostByIDRow
@@ -93,16 +95,18 @@ type Model struct {
 	viewport           viewport.Model
 	commentCursor      int
 	commentLineOffsets []int
+	commentSortMode    CommentSortMode
 
 	// Micro-interactions and animations.
 	flashMsg string
 	animTick int // Animation tick counter for Earth rotation and logo shine.
 
 	// Content creation: New Post.
-	titleInput    textinput.Model
-	urlInput      textinput.Model
-	bodyInput     textarea.Model
-	postFormFocus int // 0: Title, 1: URL, 2: Body
+	titleInput         textinput.Model
+	newPostCategoryIdx int // Index into AvailableCategories
+	urlInput           textinput.Model
+	bodyInput          textarea.Model
+	postFormFocus      int // 0: Title, 1: Category, 2: URL, 3: Body
 
 	// Content creation: New Comment.
 	commentInput      textarea.Model
@@ -128,7 +132,7 @@ type boardsLoadedMsg struct {
 
 // postsLoadedMsg carries posts for a board.
 type postsLoadedMsg struct {
-	posts []db.ListPostsByBoardNewRow
+	posts []PostFeedItem
 }
 
 // postDetailLoadedMsg carries the post details and its threaded comments.
@@ -585,6 +589,9 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 // --- Post list ---------------------------------------------------------
 
 func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
+	sortMode := m.postSortMode
+	catFilter := m.categoryFilter
+
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
@@ -592,16 +599,73 @@ func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 		// Proactively prune any empty soft-deleted posts
 		_ = m.queries.PruneAllEmptyDeletedPosts(ctx)
 
-		posts, err := m.queries.ListPostsByBoardNew(ctx, db.ListPostsByBoardNewParams{
-			BoardID: boardID,
-			Limit:   50,
-			Offset:  0,
-		})
-		if err != nil {
-			return errMsg{err: fmt.Errorf("loading posts: %w", err)}
+		var feedItems []PostFeedItem
+
+		switch sortMode {
+		case PostSortHot:
+			rows, err := m.queries.ListPostsByBoardHot(ctx, db.ListPostsByBoardHotParams{
+				BoardID:  boardID,
+				Limit:    50,
+				Offset:   0,
+				Category: catFilter,
+			})
+			if err != nil {
+				return errMsg{err: fmt.Errorf("loading hot posts: %w", err)}
+			}
+			feedItems = make([]PostFeedItem, len(rows))
+			for i, r := range rows {
+				feedItems[i] = hotRowToPost(r)
+			}
+		case PostSortTop:
+			rows, err := m.queries.ListPostsByBoardTop(ctx, db.ListPostsByBoardTopParams{
+				BoardID:  boardID,
+				Limit:    50,
+				Offset:   0,
+				Category: catFilter,
+			})
+			if err != nil {
+				return errMsg{err: fmt.Errorf("loading top posts: %w", err)}
+			}
+			feedItems = make([]PostFeedItem, len(rows))
+			for i, r := range rows {
+				feedItems[i] = topRowToPost(r)
+			}
+		default: // PostSortNew
+			rows, err := m.queries.ListPostsByBoardNew(ctx, db.ListPostsByBoardNewParams{
+				BoardID:  boardID,
+				Limit:    50,
+				Offset:   0,
+				Category: catFilter,
+			})
+			if err != nil {
+				return errMsg{err: fmt.Errorf("loading new posts: %w", err)}
+			}
+			feedItems = make([]PostFeedItem, len(rows))
+			for i, r := range rows {
+				feedItems[i] = newRowToPost(r)
+			}
 		}
-		return postsLoadedMsg{posts: posts}
+
+		return postsLoadedMsg{posts: feedItems}
 	}
+}
+
+func (m *Model) cycleCategoryFilter() {
+	if m.categoryFilter == "" {
+		m.categoryFilter = AvailableCategories[0]
+		return
+	}
+	for i, cat := range AvailableCategories {
+		if m.categoryFilter == cat {
+			if i+1 < len(AvailableCategories) {
+				m.categoryFilter = AvailableCategories[i+1]
+			} else {
+				m.categoryFilter = "" // wrap back to all
+			}
+			return
+		}
+	}
+	m.categoryFilter = ""
 }
 
 func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
@@ -627,6 +691,26 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 			if len(m.posts) > 0 {
 				m.postCursor = len(m.posts) - 1
 			}
+		case msg.String() == "s":
+			m.postSortMode = (m.postSortMode + 1) % 3
+			m.flashMsg = "• Posts sorted by " + m.postSortMode.String()
+			m.postCursor = 0
+			if m.currentBoard != nil {
+				return m, m.loadPostsCmd(m.currentBoard.ID)
+			}
+			return m, nil
+		case msg.String() == "c":
+			m.cycleCategoryFilter()
+			if m.categoryFilter == "" {
+				m.flashMsg = "• Flair: all categories"
+			} else {
+				m.flashMsg = "• Flair: " + m.categoryFilter
+			}
+			m.postCursor = 0
+			if m.currentBoard != nil {
+				return m, m.loadPostsCmd(m.currentBoard.ID)
+			}
+			return m, nil
 		case msg.String() == "enter":
 			if len(m.posts) > 0 {
 				post := m.posts[m.postCursor]
@@ -728,7 +812,10 @@ func (m *Model) loadPostDetailCmd(postID int64) tea.Cmd {
 			}
 		}
 
-		return postDetailLoadedMsg{post: &post, comments: comments}
+		commSort := m.commentSortMode
+		sortedComments := sortCommentTree(comments, commSort)
+
+		return postDetailLoadedMsg{post: &post, comments: sortedComments}
 	}
 }
 
@@ -796,6 +883,14 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		case "q":
 			return m, tea.Quit
+		case "s":
+			m.commentSortMode = (m.commentSortMode + 1) % 3
+			m.comments = sortCommentTree(m.comments, m.commentSortMode)
+			m.commentCursor = -1
+			m.flashMsg = "• Comments sorted by " + m.commentSortMode.String()
+			m.viewport.SetContent(m.renderPostDetailContent())
+			m.viewport.GotoTop()
+			return m, nil
 		case "j", "down":
 			if len(m.comments) > 0 && m.commentCursor < len(m.comments)-1 {
 				m.commentCursor++
@@ -1067,6 +1162,7 @@ func (m *Model) castCommentVoteCmd(commentID int64, direction int16) tea.Cmd {
 func (m *Model) openNewPost() tea.Cmd {
 	m.currentView = viewNewPost
 	m.postFormFocus = 0
+	m.newPostCategoryIdx = 0
 	m.titleInput.Reset()
 	m.urlInput.Reset()
 	m.bodyInput.Reset()
@@ -1084,9 +1180,13 @@ func (m *Model) syncPostFormFocus() {
 		m.bodyInput.Blur()
 	case 1:
 		m.titleInput.Blur()
-		m.urlInput.Focus()
+		m.urlInput.Blur()
 		m.bodyInput.Blur()
 	case 2:
+		m.titleInput.Blur()
+		m.urlInput.Focus()
+		m.bodyInput.Blur()
+	case 3:
 		m.titleInput.Blur()
 		m.urlInput.Blur()
 		m.bodyInput.Focus()
@@ -1101,11 +1201,11 @@ func (m *Model) updateNewPost(msg tea.Msg) (*Model, tea.Cmd) {
 			m.currentView = viewPostList
 			return m, nil
 		case msg.String() == "tab":
-			m.postFormFocus = (m.postFormFocus + 1) % 3
+			m.postFormFocus = (m.postFormFocus + 1) % 4
 			m.syncPostFormFocus()
 			return m, nil
 		case msg.String() == "shift+tab" || msg.Type == tea.KeyShiftTab:
-			m.postFormFocus = (m.postFormFocus - 1 + 3) % 3
+			m.postFormFocus = (m.postFormFocus - 1 + 4) % 4
 			m.syncPostFormFocus()
 			return m, nil
 		case msg.String() == "enter":
@@ -1117,8 +1217,12 @@ func (m *Model) updateNewPost(msg tea.Msg) (*Model, tea.Cmd) {
 				m.postFormFocus = 2
 				m.syncPostFormFocus()
 				return m, nil
+			} else if m.postFormFocus == 2 {
+				m.postFormFocus = 3
+				m.syncPostFormFocus()
+				return m, nil
 			}
-			// When postFormFocus == 2 (body textarea), enter inserts a newline
+			// When postFormFocus == 3 (body textarea), enter inserts a newline
 		case msg.String() == "ctrl+s":
 			title := strings.TrimSpace(m.titleInput.Value())
 			if title == "" {
@@ -1129,21 +1233,37 @@ func (m *Model) updateNewPost(msg tea.Msg) (*Model, tea.Cmd) {
 			body := strings.TrimSpace(m.bodyInput.Value())
 			return m, m.submitPostCmd(title, body, url)
 		}
+
+		if m.postFormFocus == 1 {
+			switch msg.String() {
+			case "h", "left":
+				m.newPostCategoryIdx = (m.newPostCategoryIdx - 1 + len(AvailableCategories)) % len(AvailableCategories)
+				return m, nil
+			case "l", "right", " ":
+				m.newPostCategoryIdx = (m.newPostCategoryIdx + 1) % len(AvailableCategories)
+				return m, nil
+			}
+		}
 	}
 
 	var cmd tea.Cmd
 	switch m.postFormFocus {
 	case 0:
 		m.titleInput, cmd = m.titleInput.Update(msg)
-	case 1:
-		m.urlInput, cmd = m.urlInput.Update(msg)
 	case 2:
+		m.urlInput, cmd = m.urlInput.Update(msg)
+	case 3:
 		m.bodyInput, cmd = m.bodyInput.Update(msg)
 	}
 	return m, cmd
 }
 
 func (m *Model) submitPostCmd(title, body, url string) tea.Cmd {
+	category := "general"
+	if m.newPostCategoryIdx >= 0 && m.newPostCategoryIdx < len(AvailableCategories) {
+		category = AvailableCategories[m.newPostCategoryIdx]
+	}
+
 	return func() tea.Msg {
 		if m.user == nil || m.currentBoard == nil {
 			return errMsg{err: fmt.Errorf("missing user or board context")}
@@ -1157,6 +1277,7 @@ func (m *Model) submitPostCmd(title, body, url string) tea.Cmd {
 			Title:    sanitize.SingleLine(title),
 			Body:     sanitize.Text(body),
 			Url:      sanitize.SingleLine(url),
+			Category: category,
 		})
 		if err != nil {
 			return errMsg{err: fmt.Errorf("creating post: %w", err)}
