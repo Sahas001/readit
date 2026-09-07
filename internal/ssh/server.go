@@ -23,10 +23,11 @@ func NewServer(cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger) (*ss
 	// teaHandler returns the Bubble Tea model and program options per session.
 	teaHandler := func(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
 		pubKey := sess.PublicKey()
-		fingerprint := ""
-		if pubKey != nil {
-			fingerprint = Fingerprint(pubKey)
+		if pubKey == nil {
+			wish.Fatalln(sess, "Error: Public key authentication is required to access ReadIT.")
+			return nil, nil
 		}
+		fingerprint := Fingerprint(pubKey)
 
 		logger.Info("new session",
 			"user", sess.User(),

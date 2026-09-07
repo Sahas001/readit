@@ -140,6 +140,27 @@ func (q *Queries) HardDeletePost(ctx context.Context, arg HardDeletePostParams) 
 	return err
 }
 
+const hardDeletePostIfEmpty = `-- name: HardDeletePostIfEmpty :execrows
+DELETE FROM posts
+WHERE posts.id = $1 AND posts.author_id = $2
+  AND NOT EXISTS (
+      SELECT 1 FROM comments WHERE comments.post_id = posts.id
+  )
+`
+
+type HardDeletePostIfEmptyParams struct {
+	ID       int64 `json:"id"`
+	AuthorID int64 `json:"author_id"`
+}
+
+func (q *Queries) HardDeletePostIfEmpty(ctx context.Context, arg HardDeletePostIfEmptyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, hardDeletePostIfEmpty, arg.ID, arg.AuthorID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const hasPostComments = `-- name: HasPostComments :one
 SELECT EXISTS(
     SELECT 1 FROM comments WHERE post_id = $1 AND is_deleted = FALSE

@@ -165,6 +165,27 @@ func (q *Queries) HardDeleteComment(ctx context.Context, arg HardDeleteCommentPa
 	return err
 }
 
+const hardDeleteCommentIfNoChildren = `-- name: HardDeleteCommentIfNoChildren :execrows
+DELETE FROM comments
+WHERE comments.id = $1 AND comments.author_id = $2
+  AND NOT EXISTS (
+      SELECT 1 FROM comments c WHERE c.parent_id = comments.id
+  )
+`
+
+type HardDeleteCommentIfNoChildrenParams struct {
+	ID       int64 `json:"id"`
+	AuthorID int64 `json:"author_id"`
+}
+
+func (q *Queries) HardDeleteCommentIfNoChildren(ctx context.Context, arg HardDeleteCommentIfNoChildrenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, hardDeleteCommentIfNoChildren, arg.ID, arg.AuthorID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const hasCommentChildren = `-- name: HasCommentChildren :one
 SELECT EXISTS(
     SELECT 1 FROM comments WHERE parent_id = $1
@@ -180,11 +201,14 @@ func (q *Queries) HasCommentChildren(ctx context.Context, parentID pgtype.Int8) 
 
 const pruneTombstoneComments = `-- name: PruneTombstoneComments :exec
 WITH RECURSIVE active_ancestors AS (
-    SELECT parent_id FROM comments WHERE post_id = $1 AND is_deleted = FALSE AND parent_id IS NOT NULL
+    SELECT parent_id, 1 AS depth
+    FROM comments
+    WHERE post_id = $1 AND is_deleted = FALSE AND parent_id IS NOT NULL
     UNION
-    SELECT c.parent_id FROM comments c
+    SELECT c.parent_id, a.depth + 1
+    FROM comments c
     JOIN active_ancestors a ON c.id = a.parent_id
-    WHERE c.parent_id IS NOT NULL
+    WHERE c.post_id = $1 AND c.parent_id IS NOT NULL AND a.depth < 15
 )
 DELETE FROM comments
 WHERE comments.post_id = $1

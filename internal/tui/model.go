@@ -521,10 +521,31 @@ func (m *Model) View() string {
 	}
 }
 
+// execTx executes fn within an explicit database transaction when pool is available.
+func (m *Model) execTx(ctx context.Context, fn func(q *db.Queries) error) error {
+	if m.pool == nil {
+		return fn(m.queries)
+	}
+	tx, err := m.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	q := m.queries.WithTx(tx)
+	if err := fn(q); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // --- User loading ------------------------------------------------------
 
 func (m *Model) lookupUserCmd() tea.Cmd {
 	return func() tea.Msg {
+		if strings.TrimSpace(m.fingerprint) == "" {
+			return errMsg{err: fmt.Errorf("public key authentication required")}
+		}
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
@@ -578,6 +599,9 @@ func (m *Model) updateOnboarding(msg tea.Msg) (*Model, tea.Cmd) {
 
 func (m *Model) createUserCmd(handle string) tea.Cmd {
 	return func() tea.Msg {
+		if strings.TrimSpace(m.fingerprint) == "" {
+			return errMsg{err: fmt.Errorf("public key authentication required")}
+		}
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
@@ -687,9 +711,6 @@ func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 
 	return func() tea.Msg {
 		defer cancel()
-
-		// Proactively prune any empty soft-deleted posts
-		_ = m.queries.PruneAllEmptyDeletedPosts(fetchCtx)
 
 		var feedItems []PostFeedItem
 		var hasMore bool
@@ -1395,36 +1416,42 @@ func (m *Model) castPostVoteCmd(postID int64, direction int16) tea.Cmd {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
-		existing, err := m.queries.GetPostVoteByUser(ctx, db.GetPostVoteByUserParams{
-			UserID: m.user.ID,
-			PostID: postID,
-		})
-
 		var newDirection int16
-		if err == nil && existing.Direction == direction {
-			// User pressed the same direction again -> toggle off (delete vote)
-			if err := m.queries.DeletePostVote(ctx, db.DeletePostVoteParams{
+		err := m.execTx(ctx, func(q *db.Queries) error {
+			existing, err := q.GetPostVoteByUser(ctx, db.GetPostVoteByUserParams{
 				UserID: m.user.ID,
 				PostID: postID,
-			}); err != nil {
-				return errMsg{err: fmt.Errorf("deleting post vote: %w", err)}
-			}
-			newDirection = 0
-		} else {
-			// New vote or flipping from upvote to downvote (or vice versa)
-			if err := m.queries.UpsertPostVote(ctx, db.UpsertPostVoteParams{
-				UserID:    m.user.ID,
-				PostID:    postID,
-				Direction: direction,
-			}); err != nil {
-				return errMsg{err: fmt.Errorf("voting on post: %w", err)}
-			}
-			newDirection = direction
-		}
+			})
 
-		// Recalculate denormalized score
-		if err := m.queries.RecalculatePostScore(ctx, postID); err != nil {
-			return errMsg{err: fmt.Errorf("recalculating score: %w", err)}
+			if err == nil && existing.Direction == direction {
+				// User pressed the same direction again -> toggle off (delete vote)
+				if err := q.DeletePostVote(ctx, db.DeletePostVoteParams{
+					UserID: m.user.ID,
+					PostID: postID,
+				}); err != nil {
+					return fmt.Errorf("deleting post vote: %w", err)
+				}
+				newDirection = 0
+			} else {
+				// New vote or flipping from upvote to downvote (or vice versa)
+				if err := q.UpsertPostVote(ctx, db.UpsertPostVoteParams{
+					UserID:    m.user.ID,
+					PostID:    postID,
+					Direction: direction,
+				}); err != nil {
+					return fmt.Errorf("voting on post: %w", err)
+				}
+				newDirection = direction
+			}
+
+			// Recalculate denormalized score atomically in same transaction
+			if err := q.RecalculatePostScore(ctx, postID); err != nil {
+				return fmt.Errorf("recalculating score: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return errMsg{err: err}
 		}
 
 		return postVotedMsg{postID: postID, direction: newDirection}
@@ -1439,35 +1466,41 @@ func (m *Model) castCommentVoteCmd(commentID int64, direction int16) tea.Cmd {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
-		existing, err := m.queries.GetCommentVoteByUser(ctx, db.GetCommentVoteByUserParams{
-			UserID:    m.user.ID,
-			CommentID: commentID,
-		})
-
 		var newDirection int16
-		if err == nil && existing.Direction == direction {
-			// User pressed the same direction again -> toggle off (delete vote)
-			if err := m.queries.DeleteCommentVote(ctx, db.DeleteCommentVoteParams{
+		err := m.execTx(ctx, func(q *db.Queries) error {
+			existing, err := q.GetCommentVoteByUser(ctx, db.GetCommentVoteByUserParams{
 				UserID:    m.user.ID,
 				CommentID: commentID,
-			}); err != nil {
-				return errMsg{err: fmt.Errorf("deleting comment vote: %w", err)}
-			}
-			newDirection = 0
-		} else {
-			// New vote or flipping from upvote to downvote (or vice versa)
-			if err := m.queries.UpsertCommentVote(ctx, db.UpsertCommentVoteParams{
-				UserID:    m.user.ID,
-				CommentID: commentID,
-				Direction: direction,
-			}); err != nil {
-				return errMsg{err: fmt.Errorf("voting on comment: %w", err)}
-			}
-			newDirection = direction
-		}
+			})
 
-		if err := m.queries.RecalculateCommentScore(ctx, commentID); err != nil {
-			return errMsg{err: fmt.Errorf("recalculating comment score: %w", err)}
+			if err == nil && existing.Direction == direction {
+				// User pressed the same direction again -> toggle off (delete vote)
+				if err := q.DeleteCommentVote(ctx, db.DeleteCommentVoteParams{
+					UserID:    m.user.ID,
+					CommentID: commentID,
+				}); err != nil {
+					return fmt.Errorf("deleting comment vote: %w", err)
+				}
+				newDirection = 0
+			} else {
+				// New vote or flipping from upvote to downvote (or vice versa)
+				if err := q.UpsertCommentVote(ctx, db.UpsertCommentVoteParams{
+					UserID:    m.user.ID,
+					CommentID: commentID,
+					Direction: direction,
+				}); err != nil {
+					return fmt.Errorf("voting on comment: %w", err)
+				}
+				newDirection = direction
+			}
+
+			if err := q.RecalculateCommentScore(ctx, commentID); err != nil {
+				return fmt.Errorf("recalculating comment score: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return errMsg{err: err}
 		}
 
 		return commentVotedMsg{commentID: commentID, direction: newDirection}
@@ -1651,18 +1684,27 @@ func (m *Model) submitCommentCmd(body string) tea.Cmd {
 			parentID = pgtype.Int8{Int64: *m.replyParentID, Valid: true}
 		}
 
-		comment, err := m.queries.CreateComment(ctx, db.CreateCommentParams{
-			PostID:   m.currentPost.ID,
-			ParentID: parentID,
-			AuthorID: m.user.ID,
-			Body:     sanitize.Text(body),
+		var comment db.Comment
+		err := m.execTx(ctx, func(q *db.Queries) error {
+			var err error
+			comment, err = q.CreateComment(ctx, db.CreateCommentParams{
+				PostID:   m.currentPost.ID,
+				ParentID: parentID,
+				AuthorID: m.user.ID,
+				Body:     sanitize.Text(body),
+			})
+			if err != nil {
+				return fmt.Errorf("creating comment: %w", err)
+			}
+
+			if err := q.IncrementPostCommentCount(ctx, m.currentPost.ID); err != nil {
+				return fmt.Errorf("incrementing comment count: %w", err)
+			}
+			return nil
 		})
 		if err != nil {
-			return errMsg{err: fmt.Errorf("creating comment: %w", err)}
+			return errMsg{err: err}
 		}
-
-		// Increment denormalized comment count
-		_ = m.queries.IncrementPostCommentCount(ctx, m.currentPost.ID)
 
 		return commentCreatedMsg{comment: comment}
 	}
@@ -1700,64 +1742,70 @@ func (m *Model) executeDeleteCmd(target *deleteTarget) tea.Cmd {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
+		var isSoft bool
 		if target.targetType == deleteTargetPost {
-			hasComments, err := m.queries.HasPostComments(ctx, target.id)
-			if err != nil {
-				return errMsg{err: fmt.Errorf("checking post comments: %w", err)}
-			}
-			if hasComments {
-				if err := m.queries.SoftDeletePost(ctx, db.SoftDeletePostParams{
+			err := m.execTx(ctx, func(q *db.Queries) error {
+				rows, err := q.HardDeletePostIfEmpty(ctx, db.HardDeletePostIfEmptyParams{
+					ID:       target.id,
+					AuthorID: m.user.ID,
+				})
+				if err != nil {
+					return fmt.Errorf("hard deleting post: %w", err)
+				}
+
+				if rows > 0 {
+					isSoft = false
+					return nil
+				}
+
+				isSoft = true
+				if err := q.SoftDeletePost(ctx, db.SoftDeletePostParams{
 					ID:       target.id,
 					AuthorID: m.user.ID,
 				}); err != nil {
-					return errMsg{err: fmt.Errorf("soft deleting post: %w", err)}
+					return fmt.Errorf("soft deleting post: %w", err)
 				}
-				_ = m.queries.PruneTombstoneComments(ctx, target.id)
-				_ = m.queries.RecalculatePostCommentCount(ctx, target.id)
-				_ = m.queries.PruneDeletedPostIfEmpty(ctx, target.id)
-				return postDeletedMsg{postID: target.id, isSoft: true}
+				_ = q.PruneTombstoneComments(ctx, target.id)
+				_ = q.RecalculatePostCommentCount(ctx, target.id)
+				_ = q.PruneDeletedPostIfEmpty(ctx, target.id)
+				return nil
+			})
+			if err != nil {
+				return errMsg{err: err}
 			}
-
-			if err := m.queries.HardDeletePost(ctx, db.HardDeletePostParams{
-				ID:       target.id,
-				AuthorID: m.user.ID,
-			}); err != nil {
-				return errMsg{err: fmt.Errorf("hard deleting post: %w", err)}
-			}
-			return postDeletedMsg{postID: target.id, isSoft: false}
+			return postDeletedMsg{postID: target.id, isSoft: isSoft}
 		}
 
 		// Comment deletion
-		hasChildren, err := m.queries.HasCommentChildren(ctx, pgtype.Int8{Int64: target.id, Valid: true})
+		err := m.execTx(ctx, func(q *db.Queries) error {
+			rows, err := q.HardDeleteCommentIfNoChildren(ctx, db.HardDeleteCommentIfNoChildrenParams{
+				ID:       target.id,
+				AuthorID: m.user.ID,
+			})
+			if err != nil {
+				return fmt.Errorf("hard deleting comment: %w", err)
+			}
+
+			if rows > 0 {
+				isSoft = false
+			} else {
+				isSoft = true
+				if err := q.SoftDeleteComment(ctx, db.SoftDeleteCommentParams{
+					ID:       target.id,
+					AuthorID: m.user.ID,
+				}); err != nil {
+					return fmt.Errorf("soft deleting comment: %w", err)
+				}
+			}
+
+			_ = q.PruneTombstoneComments(ctx, target.postID)
+			_ = q.RecalculatePostCommentCount(ctx, target.postID)
+			_ = q.PruneDeletedPostIfEmpty(ctx, target.postID)
+			return nil
+		})
 		if err != nil {
-			return errMsg{err: fmt.Errorf("checking comment replies: %w", err)}
+			return errMsg{err: err}
 		}
-		isSoft := false
-		if hasChildren {
-			if err := m.queries.SoftDeleteComment(ctx, db.SoftDeleteCommentParams{
-				ID:       target.id,
-				AuthorID: m.user.ID,
-			}); err != nil {
-				return errMsg{err: fmt.Errorf("soft deleting comment: %w", err)}
-			}
-			isSoft = true
-		} else {
-			if err := m.queries.HardDeleteComment(ctx, db.HardDeleteCommentParams{
-				ID:       target.id,
-				AuthorID: m.user.ID,
-			}); err != nil {
-				return errMsg{err: fmt.Errorf("hard deleting comment: %w", err)}
-			}
-		}
-
-		// 1. Prune dead tombstones (any soft-deleted parent comment that now has no active descendants)
-		_ = m.queries.PruneTombstoneComments(ctx, target.postID)
-
-		// 2. Ensure post comment count accurately reflects remaining active comments
-		_ = m.queries.RecalculatePostCommentCount(ctx, target.postID)
-
-		// 3. Prune the post if it was soft-deleted and now has 0 comments remaining!
-		_ = m.queries.PruneDeletedPostIfEmpty(ctx, target.postID)
 
 		return commentDeletedMsg{commentID: target.id, postID: target.postID, isSoft: isSoft}
 	}

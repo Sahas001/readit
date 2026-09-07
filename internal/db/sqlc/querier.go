@@ -27,7 +27,9 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id int64) (User, error)
 	GetUserByPubkey(ctx context.Context, pubkeySha256 string) (User, error)
 	HardDeleteComment(ctx context.Context, arg HardDeleteCommentParams) error
+	HardDeleteCommentIfNoChildren(ctx context.Context, arg HardDeleteCommentIfNoChildrenParams) (int64, error)
 	HardDeletePost(ctx context.Context, arg HardDeletePostParams) error
+	HardDeletePostIfEmpty(ctx context.Context, arg HardDeletePostIfEmptyParams) (int64, error)
 	HasCommentChildren(ctx context.Context, parentID pgtype.Int8) (bool, error)
 	HasPostComments(ctx context.Context, postID int64) (bool, error)
 	IncrementPostCommentCount(ctx context.Context, id int64) error

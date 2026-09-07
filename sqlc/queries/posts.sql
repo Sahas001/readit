@@ -133,6 +133,13 @@ SELECT EXISTS(
 DELETE FROM posts
 WHERE id = $1 AND author_id = $2;
 
+-- name: HardDeletePostIfEmpty :execrows
+DELETE FROM posts
+WHERE posts.id = $1 AND posts.author_id = $2
+  AND NOT EXISTS (
+      SELECT 1 FROM comments WHERE comments.post_id = posts.id
+  );
+
 -- name: SoftDeletePost :exec
 UPDATE posts
 SET is_deleted = TRUE,

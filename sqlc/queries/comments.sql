@@ -61,6 +61,13 @@ SELECT EXISTS(
 DELETE FROM comments
 WHERE id = $1 AND author_id = $2;
 
+-- name: HardDeleteCommentIfNoChildren :execrows
+DELETE FROM comments
+WHERE comments.id = $1 AND comments.author_id = $2
+  AND NOT EXISTS (
+      SELECT 1 FROM comments c WHERE c.parent_id = comments.id
+  );
+
 -- name: SoftDeleteComment :exec
 UPDATE comments
 SET is_deleted = TRUE,
@@ -70,11 +77,14 @@ WHERE id = $1 AND author_id = $2;
 
 -- name: PruneTombstoneComments :exec
 WITH RECURSIVE active_ancestors AS (
-    SELECT parent_id FROM comments WHERE post_id = $1 AND is_deleted = FALSE AND parent_id IS NOT NULL
+    SELECT parent_id, 1 AS depth
+    FROM comments
+    WHERE post_id = $1 AND is_deleted = FALSE AND parent_id IS NOT NULL
     UNION
-    SELECT c.parent_id FROM comments c
+    SELECT c.parent_id, a.depth + 1
+    FROM comments c
     JOIN active_ancestors a ON c.id = a.parent_id
-    WHERE c.parent_id IS NOT NULL
+    WHERE c.post_id = $1 AND c.parent_id IS NOT NULL AND a.depth < 15
 )
 DELETE FROM comments
 WHERE comments.post_id = $1
