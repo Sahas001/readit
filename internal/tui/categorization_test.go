@@ -224,10 +224,11 @@ func TestRowToPostConverters(t *testing.T) {
 		CreatedAt:    now,
 		IsDeleted:    false,
 		Category:     "showcase",
+		HotScore:     123.45,
 		AuthorHandle: "alice",
 	}
 	p1 := hotRowToPost(hotRow)
-	if p1.ID != 1 || p1.Category != "showcase" || p1.AuthorHandle != "alice" || p1.Score != 42 {
+	if p1.ID != 1 || p1.Category != "showcase" || p1.AuthorHandle != "alice" || p1.Score != 42 || p1.HotScore != 123.45 {
 		t.Errorf("unexpected conversion from hotRow: %+v", p1)
 	}
 
@@ -242,10 +243,11 @@ func TestRowToPostConverters(t *testing.T) {
 		CreatedAt:    now,
 		IsDeleted:    false,
 		Category:     "question",
+		HotScore:     67.89,
 		AuthorHandle: "bob",
 	}
 	p2 := newRowToPost(newRow)
-	if p2.ID != 10 || p2.Category != "question" || p2.AuthorHandle != "bob" {
+	if p2.ID != 10 || p2.Category != "question" || p2.AuthorHandle != "bob" || p2.HotScore != 67.89 {
 		t.Errorf("unexpected conversion from newRow: %+v", p2)
 	}
 
@@ -260,10 +262,11 @@ func TestRowToPostConverters(t *testing.T) {
 		CreatedAt:    now,
 		IsDeleted:    false,
 		Category:     "guide",
+		HotScore:     999.99,
 		AuthorHandle: "carol",
 	}
 	p3 := topRowToPost(topRow)
-	if p3.ID != 20 || p3.Category != "guide" || p3.AuthorHandle != "carol" || p3.Score != 100 {
+	if p3.ID != 20 || p3.Category != "guide" || p3.AuthorHandle != "carol" || p3.Score != 100 || p3.HotScore != 999.99 {
 		t.Errorf("unexpected conversion from topRow: %+v", p3)
 	}
 }

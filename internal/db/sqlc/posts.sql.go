@@ -14,7 +14,7 @@ import (
 const createPost = `-- name: CreatePost :one
 INSERT INTO posts (board_id, author_id, title, body, url, category)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, board_id, author_id, title, body, url, score, comment_count, created_at, updated_at, is_deleted, deleted_at, category
+RETURNING id, board_id, author_id, title, body, url, score, comment_count, created_at, updated_at, is_deleted, deleted_at, category, hot_score
 `
 
 type CreatePostParams struct {
@@ -50,6 +50,7 @@ func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, e
 		&i.IsDeleted,
 		&i.DeletedAt,
 		&i.Category,
+		&i.HotScore,
 	)
 	return i, err
 }
@@ -173,25 +174,30 @@ SELECT
     p.created_at,
     p.is_deleted,
     p.category,
+    p.hot_score,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
-  AND ($4::TEXT = '' OR p.category = $4)
-  AND ($5::TEXT = '' OR (p.title ILIKE '%' || $5::TEXT || '%' OR p.body ILIKE '%' || $5::TEXT || '%'))
-ORDER BY (
-    (p.score + 1)::FLOAT / POWER(GREATEST(1.0, EXTRACT(EPOCH FROM (now() - p.created_at))/3600.0 + 2.0), 1.5)
-) DESC, p.created_at DESC
-LIMIT $2 OFFSET $3
+  AND ($3::TEXT = '' OR p.category = $3)
+  AND ($4::TEXT = '' OR (p.title ILIKE '%' || $4::TEXT || '%' OR p.body ILIKE '%' || $4::TEXT || '%'))
+  AND (
+      $5::FLOAT8 IS NULL
+      OR (p.hot_score < $5::FLOAT8)
+      OR (p.hot_score = $5::FLOAT8 AND p.id < $6::BIGINT)
+  )
+ORDER BY p.hot_score DESC, p.id DESC
+LIMIT $2
 `
 
 type ListPostsByBoardHotParams struct {
-	BoardID     int64  `json:"board_id"`
-	Limit       int32  `json:"limit"`
-	Offset      int32  `json:"offset"`
-	Category    string `json:"category"`
-	SearchQuery string `json:"search_query"`
+	BoardID        int64         `json:"board_id"`
+	Limit          int32         `json:"limit"`
+	Category       string        `json:"category"`
+	SearchQuery    string        `json:"search_query"`
+	CursorHotScore pgtype.Float8 `json:"cursor_hot_score"`
+	CursorID       pgtype.Int8   `json:"cursor_id"`
 }
 
 type ListPostsByBoardHotRow struct {
@@ -205,6 +211,7 @@ type ListPostsByBoardHotRow struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	IsDeleted    bool               `json:"is_deleted"`
 	Category     string             `json:"category"`
+	HotScore     float64            `json:"hot_score"`
 	AuthorHandle string             `json:"author_handle"`
 }
 
@@ -212,9 +219,10 @@ func (q *Queries) ListPostsByBoardHot(ctx context.Context, arg ListPostsByBoardH
 	rows, err := q.db.Query(ctx, listPostsByBoardHot,
 		arg.BoardID,
 		arg.Limit,
-		arg.Offset,
 		arg.Category,
 		arg.SearchQuery,
+		arg.CursorHotScore,
+		arg.CursorID,
 	)
 	if err != nil {
 		return nil, err
@@ -234,6 +242,7 @@ func (q *Queries) ListPostsByBoardHot(ctx context.Context, arg ListPostsByBoardH
 			&i.CreatedAt,
 			&i.IsDeleted,
 			&i.Category,
+			&i.HotScore,
 			&i.AuthorHandle,
 		); err != nil {
 			return nil, err
@@ -258,23 +267,30 @@ SELECT
     p.created_at,
     p.is_deleted,
     p.category,
+    p.hot_score,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
-  AND ($4::TEXT = '' OR p.category = $4)
-  AND ($5::TEXT = '' OR (p.title ILIKE '%' || $5::TEXT || '%' OR p.body ILIKE '%' || $5::TEXT || '%'))
-ORDER BY p.created_at DESC
-LIMIT $2 OFFSET $3
+  AND ($3::TEXT = '' OR p.category = $3)
+  AND ($4::TEXT = '' OR (p.title ILIKE '%' || $4::TEXT || '%' OR p.body ILIKE '%' || $4::TEXT || '%'))
+  AND (
+      $5::TIMESTAMPTZ IS NULL
+      OR (p.created_at < $5::TIMESTAMPTZ)
+      OR (p.created_at = $5::TIMESTAMPTZ AND p.id < $6::BIGINT)
+  )
+ORDER BY p.created_at DESC, p.id DESC
+LIMIT $2
 `
 
 type ListPostsByBoardNewParams struct {
-	BoardID     int64  `json:"board_id"`
-	Limit       int32  `json:"limit"`
-	Offset      int32  `json:"offset"`
-	Category    string `json:"category"`
-	SearchQuery string `json:"search_query"`
+	BoardID         int64              `json:"board_id"`
+	Limit           int32              `json:"limit"`
+	Category        string             `json:"category"`
+	SearchQuery     string             `json:"search_query"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.Int8        `json:"cursor_id"`
 }
 
 type ListPostsByBoardNewRow struct {
@@ -288,6 +304,7 @@ type ListPostsByBoardNewRow struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	IsDeleted    bool               `json:"is_deleted"`
 	Category     string             `json:"category"`
+	HotScore     float64            `json:"hot_score"`
 	AuthorHandle string             `json:"author_handle"`
 }
 
@@ -295,9 +312,10 @@ func (q *Queries) ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardN
 	rows, err := q.db.Query(ctx, listPostsByBoardNew,
 		arg.BoardID,
 		arg.Limit,
-		arg.Offset,
 		arg.Category,
 		arg.SearchQuery,
+		arg.CursorCreatedAt,
+		arg.CursorID,
 	)
 	if err != nil {
 		return nil, err
@@ -317,6 +335,7 @@ func (q *Queries) ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardN
 			&i.CreatedAt,
 			&i.IsDeleted,
 			&i.Category,
+			&i.HotScore,
 			&i.AuthorHandle,
 		); err != nil {
 			return nil, err
@@ -341,23 +360,34 @@ SELECT
     p.created_at,
     p.is_deleted,
     p.category,
+    p.hot_score,
     (CASE WHEN p.is_deleted THEN '[deleted]' ELSE u.handle END)::TEXT AS author_handle
 FROM posts p
 JOIN users u ON u.id = p.author_id
 WHERE p.board_id = $1
   AND (p.is_deleted = FALSE OR p.comment_count > 0)
-  AND ($4::TEXT = '' OR p.category = $4)
-  AND ($5::TEXT = '' OR (p.title ILIKE '%' || $5::TEXT || '%' OR p.body ILIKE '%' || $5::TEXT || '%'))
-ORDER BY p.score DESC, p.created_at DESC
-LIMIT $2 OFFSET $3
+  AND ($3::TEXT = '' OR p.category = $3)
+  AND ($4::TEXT = '' OR (p.title ILIKE '%' || $4::TEXT || '%' OR p.body ILIKE '%' || $4::TEXT || '%'))
+  AND (
+      $5::INT IS NULL
+      OR (p.score < $5::INT)
+      OR (p.score = $5::INT AND (
+          (p.created_at < $6::TIMESTAMPTZ)
+          OR (p.created_at = $6::TIMESTAMPTZ AND p.id < $7::BIGINT)
+      ))
+  )
+ORDER BY p.score DESC, p.created_at DESC, p.id DESC
+LIMIT $2
 `
 
 type ListPostsByBoardTopParams struct {
-	BoardID     int64  `json:"board_id"`
-	Limit       int32  `json:"limit"`
-	Offset      int32  `json:"offset"`
-	Category    string `json:"category"`
-	SearchQuery string `json:"search_query"`
+	BoardID         int64              `json:"board_id"`
+	Limit           int32              `json:"limit"`
+	Category        string             `json:"category"`
+	SearchQuery     string             `json:"search_query"`
+	CursorScore     pgtype.Int4        `json:"cursor_score"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.Int8        `json:"cursor_id"`
 }
 
 type ListPostsByBoardTopRow struct {
@@ -371,6 +401,7 @@ type ListPostsByBoardTopRow struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	IsDeleted    bool               `json:"is_deleted"`
 	Category     string             `json:"category"`
+	HotScore     float64            `json:"hot_score"`
 	AuthorHandle string             `json:"author_handle"`
 }
 
@@ -378,9 +409,11 @@ func (q *Queries) ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardT
 	rows, err := q.db.Query(ctx, listPostsByBoardTop,
 		arg.BoardID,
 		arg.Limit,
-		arg.Offset,
 		arg.Category,
 		arg.SearchQuery,
+		arg.CursorScore,
+		arg.CursorCreatedAt,
+		arg.CursorID,
 	)
 	if err != nil {
 		return nil, err
@@ -400,6 +433,7 @@ func (q *Queries) ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardT
 			&i.CreatedAt,
 			&i.IsDeleted,
 			&i.Category,
+			&i.HotScore,
 			&i.AuthorHandle,
 		); err != nil {
 			return nil, err

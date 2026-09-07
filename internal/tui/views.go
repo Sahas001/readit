@@ -114,8 +114,8 @@ func (m *Model) viewBoardList() string {
 
 	shortcuts := [][2]string{
 		{"j/k", "move"},
-		{"enter", "enter board"},
-		{"g/G", "top/end"},
+		{"enter", "open"},
+		{"?", "help"},
 		{"q", "quit"},
 	}
 
@@ -144,18 +144,30 @@ func (m *Model) viewPostList() string {
 	}
 	leftView := styleTitle.Render(leftTitle)
 
-	// 2. Right: Counts + Sort + Flair (Clean state badges without shortcut clutter)
+	// 2. Right: Counts + Page + Sort + Flair + Density
 	countLabel := "discussions"
 	if m.searchQuery != "" {
 		countLabel = "matches"
 	}
 	countStr := fmt.Sprintf("%d %s", len(m.posts), countLabel)
+	pageStr := fmt.Sprintf("pg %d", m.feedPage)
+	if m.hasNextPage {
+		pageStr += " ▶"
+	}
 	sortBadge := strings.Title(m.postSortMode.String())
 	filterBadge := "All"
 	if m.categoryFilter != "" {
 		filterBadge = m.categoryFilter
 	}
-	infoStr := fmt.Sprintf("%s  •  %s  •  %s", countStr, sortBadge, filterBadge)
+	densityBadge := "[compact: z]"
+	if m.compactMode {
+		densityBadge = "[comfort: z]"
+	}
+	hideBadge := ""
+	if m.hideRead {
+		hideBadge = "[hide-read: H]  •  "
+	}
+	infoStr := fmt.Sprintf("%s%s  •  %s  •  %s  •  %s  •  %s", hideBadge, countStr, pageStr, sortBadge, filterBadge, densityBadge)
 	rightView := styleSortPill.Render(infoStr)
 
 	headerRow := renderTwoColumnHeader(leftView, rightView, contentWidth)
@@ -181,9 +193,13 @@ func (m *Model) viewPostList() string {
 		content.WriteString("\n")
 	}
 
-	if len(m.posts) == 0 {
+	displayPosts := m.visiblePosts()
+
+	if len(displayPosts) == 0 {
 		var emptyMsg string
-		if m.searchQuery != "" {
+		if m.hideRead && len(m.posts) > 0 {
+			emptyMsg = "\n  ✓  All discussions on this page are marked as read!\n\n  Press [H] to unhide or [ ] ] to navigate to the next page.\n"
+		} else if m.searchQuery != "" {
 			emptyMsg = fmt.Sprintf("\n  •  No discussions found for %q\n\n  Try searching for a different keyword\n  or press [esc] to clear the search filter.\n", sanitize.SingleLine(m.searchQuery))
 		} else {
 			emptyMsg = fmt.Sprintf("\n  •  No discussions yet in /b/%s\n\n  Be the first to start a conversation!\n  Press [n] to create a new discussion.\n", boardSlug)
@@ -191,95 +207,170 @@ func (m *Model) viewPostList() string {
 		emptyCard := styleEmptyCard.Width(min(58, contentWidth-4)).Render(emptyMsg)
 		content.WriteString(lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, emptyCard))
 	} else {
-		// Window posts: each post consumes ~2 lines + 1 line spacing = 3 lines
 		availForPosts := max(3, contentHeight-3)
 		if m.searchFocused || m.searchQuery != "" {
 			availForPosts = max(3, contentHeight-5)
 		}
-		postsPerPage := max(1, availForPosts/3)
 
-		startIdx := 0
-		if m.postCursor >= postsPerPage {
-			startIdx = m.postCursor - postsPerPage + 1
-		}
-		endIdx := min(len(m.posts), startIdx+postsPerPage)
+		if m.compactMode {
+			// Compact 1-line table view
+			postsPerPage := max(1, availForPosts)
+			startIdx := 0
+			if m.postCursor >= postsPerPage {
+				startIdx = m.postCursor - postsPerPage + 1
+			}
+			endIdx := min(len(displayPosts), startIdx+postsPerPage)
 
-		for i := startIdx; i < endIdx; i++ {
-			post := m.posts[i]
-			isSelected := (i == m.postCursor)
+			for i := startIdx; i < endIdx; i++ {
+				post := displayPosts[i]
+				isSelected := (i == m.postCursor)
+				isRead := m.readPosts[post.ID]
 
-			// Vote column: compact and centered
-			scoreStr := fmt.Sprintf("%d", post.Score)
-			var votePill string
-			if post.Score > 0 {
+				sel := "  "
 				if isSelected {
-					votePill = styleVoteUp.Render("▲") + " " + styleScore.Copy().Width(0).Render(scoreStr)
-				} else {
-					votePill = styleVoteUp.Render("▲") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+					sel = styleSelectedBranch.Render("▌ ")
 				}
-			} else if post.Score < 0 {
+
+				scoreStr := fmt.Sprintf("%d", post.Score)
+				var votePill string
+				if post.Score > 0 {
+					if isSelected {
+						votePill = styleVoteUp.Render("▲") + styleScore.Copy().Width(0).Render(scoreStr)
+					} else {
+						votePill = styleVoteUp.Render("▲") + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+					}
+				} else if post.Score < 0 {
+					votePill = styleVoteDown.Render("▼") + styleScore.Copy().Width(0).Foreground(currentTheme.Downvote).Render(scoreStr)
+				} else {
+					votePill = styleVoteNeutral.Render("▲") + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+				}
+				voteFormatted := lipgloss.NewStyle().Width(6).Align(lipgloss.Right).Render(votePill)
+
+				categoryStr := ""
+				if !post.IsDeleted && post.Category != "" {
+					categoryStr = styleCategoryBadge(post.Category).Render("["+post.Category+"]") + " "
+				}
+
+				safeTitle := sanitize.SingleLine(post.Title)
+				var titleView string
+				if post.IsDeleted {
+					titleView = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted by author]")
+				} else if isSelected {
+					titleView = stylePostTitleSelected.Render(safeTitle)
+				} else if isRead {
+					titleView = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Render(safeTitle)
+				} else {
+					titleView = stylePostTitle.Render(safeTitle)
+				}
+
+				authorStr := "@" + sanitize.SingleLine(post.AuthorHandle)
+				if post.IsDeleted {
+					authorStr = "[deleted]"
+				}
+				readMark := ""
+				if isRead {
+					readMark = "✓ "
+				}
+				metaLine := styleMeta.Render(fmt.Sprintf("%s%s • %s • %dc", readMark, authorStr, relativeTime(post.CreatedAt.Time), post.CommentCount))
+
+				leftPart := sel + voteFormatted + " " + categoryStr
+				rightPart := "  " + metaLine
+				availTitle := max(10, contentWidth-lipgloss.Width(leftPart)-lipgloss.Width(rightPart))
+				titleFormatted := lipgloss.NewStyle().MaxWidth(availTitle).Render(titleView)
+				spaces := max(1, contentWidth-lipgloss.Width(leftPart)-lipgloss.Width(titleFormatted)-lipgloss.Width(rightPart))
+
+				content.WriteString(leftPart + titleFormatted + strings.Repeat(" ", spaces) + metaLine + "\n")
+			}
+		} else {
+			// Comfortable 3-line card view
+			postsPerPage := max(1, availForPosts/3)
+			startIdx := 0
+			if m.postCursor >= postsPerPage {
+				startIdx = m.postCursor - postsPerPage + 1
+			}
+			endIdx := min(len(displayPosts), startIdx+postsPerPage)
+
+			for i := startIdx; i < endIdx; i++ {
+				post := displayPosts[i]
+				isSelected := (i == m.postCursor)
+				isRead := m.readPosts[post.ID]
+
+				scoreStr := fmt.Sprintf("%d", post.Score)
+				var votePill string
+				if post.Score > 0 {
+					if isSelected {
+						votePill = styleVoteUp.Render("▲") + " " + styleScore.Copy().Width(0).Render(scoreStr)
+					} else {
+						votePill = styleVoteUp.Render("▲") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+					}
+				} else if post.Score < 0 {
+					if isSelected {
+						votePill = styleVoteDown.Render("▼") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.Downvote).Render(scoreStr)
+					} else {
+						votePill = styleVoteDown.Render("▼") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+					}
+				} else {
+					if isSelected {
+						votePill = styleVoteNeutral.Render("▲") + " " + styleScore.Copy().Width(0).Render(scoreStr)
+					} else {
+						votePill = styleVoteNeutral.Render("▲") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+					}
+				}
+
+				safeTitle := sanitize.SingleLine(post.Title)
+				var titleView string
+				if post.IsDeleted {
+					titleView = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted by author]")
+				} else if isSelected {
+					titleView = stylePostTitleSelected.Render(safeTitle)
+				} else if isRead {
+					titleView = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Render(safeTitle)
+				} else {
+					titleView = stylePostTitle.Render(safeTitle)
+				}
+
+				timeStr := relativeTime(post.CreatedAt.Time)
+				var authorStr string
+				if post.IsDeleted {
+					authorStr = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
+				} else {
+					authorStr = "@" + sanitize.SingleLine(post.AuthorHandle)
+				}
+				if isRead {
+					authorStr = "✓ " + authorStr
+				}
+				commentsStr := fmt.Sprintf("%d comments", post.CommentCount)
+
+				categoryStr := ""
+				if !post.IsDeleted && post.Category != "" {
+					categoryStr = styleCategoryBadge(post.Category).Render("[" + post.Category + "]")
+				}
+
+				metaLine := fmt.Sprintf("%s • %s • %s",
+					styleMetaAuthor.Render(authorStr),
+					styleMeta.Render(timeStr),
+					styleMeta.Render(commentsStr),
+				)
+				if categoryStr != "" {
+					metaLine = categoryStr + "  " + metaLine
+				}
+
+				voteWidth := 6
+				voteFormatted := lipgloss.NewStyle().Width(voteWidth).Align(lipgloss.Right).Render(votePill)
+				spacer := strings.Repeat(" ", voteWidth)
+				line1 := voteFormatted + "  " + titleView
+				line2 := spacer + "  " + metaLine
+				postBox := line1 + "\n" + line2
+
+				cardWidth := max(10, contentWidth-1)
+				var postCard string
 				if isSelected {
-					votePill = styleVoteDown.Render("▼") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.Downvote).Render(scoreStr)
+					postCard = stylePostCardSelected.Width(cardWidth).Render(postBox)
 				} else {
-					votePill = styleVoteDown.Render("▼") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
+					postCard = stylePostCardNormal.Width(cardWidth).Render(postBox)
 				}
-			} else {
-				if isSelected {
-					votePill = styleVoteNeutral.Render("▲") + " " + styleScore.Copy().Width(0).Render(scoreStr)
-				} else {
-					votePill = styleVoteNeutral.Render("▲") + " " + styleScore.Copy().Width(0).Foreground(currentTheme.TextMuted).Render(scoreStr)
-				}
+				content.WriteString(postCard + "\n\n")
 			}
-
-			// Content column
-			safeTitle := sanitize.SingleLine(post.Title)
-			var titleView string
-			if post.IsDeleted {
-				titleView = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted by author]")
-			} else if isSelected {
-				titleView = stylePostTitleSelected.Render(safeTitle)
-			} else {
-				titleView = stylePostTitle.Render(safeTitle)
-			}
-
-			timeStr := relativeTime(post.CreatedAt.Time)
-			var authorStr string
-			if post.IsDeleted {
-				authorStr = lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render("[deleted]")
-			} else {
-				authorStr = "@" + sanitize.SingleLine(post.AuthorHandle)
-			}
-			commentsStr := fmt.Sprintf("%d comments", post.CommentCount)
-
-			categoryStr := ""
-			if !post.IsDeleted && post.Category != "" {
-				categoryStr = styleCategoryBadge(post.Category).Render("[" + post.Category + "]")
-			}
-
-			metaLine := fmt.Sprintf("%s • %s • %s",
-				styleMetaAuthor.Render(authorStr),
-				styleMeta.Render(timeStr),
-				styleMeta.Render(commentsStr),
-			)
-			if categoryStr != "" {
-				metaLine = categoryStr + "  " + metaLine
-			}
-
-			voteWidth := 6
-			voteFormatted := lipgloss.NewStyle().Width(voteWidth).Align(lipgloss.Right).Render(votePill)
-			spacer := strings.Repeat(" ", voteWidth)
-			line1 := voteFormatted + "  " + titleView
-			line2 := spacer + "  " + metaLine
-			postBox := line1 + "\n" + line2
-
-			cardWidth := max(10, contentWidth-1)
-			var postCard string
-			if isSelected {
-				postCard = stylePostCardSelected.Width(cardWidth).Render(postBox)
-			} else {
-				postCard = stylePostCardNormal.Width(cardWidth).Render(postBox)
-			}
-			content.WriteString(postCard + "\n\n")
 		}
 	}
 
@@ -292,27 +383,19 @@ func (m *Model) viewPostList() string {
 	} else if m.searchQuery != "" {
 		shortcuts = [][2]string{
 			{"j/k", "move"},
-			{"enter", "view"},
-			{"/", "search"},
-			{"esc", "clear search"},
-			{"s", "sort"},
-			{"c", "flair"},
-			{"u/d", "vote"},
-			{"n", "new post"},
-			{"x", "delete"},
+			{"enter", "open"},
+			{"n", "new"},
+			{"esc", "clear"},
+			{"?", "help"},
 			{"q", "quit"},
 		}
 	} else {
 		shortcuts = [][2]string{
 			{"j/k", "move"},
-			{"enter", "view"},
-			{"/", "search"},
-			{"s", "sort"},
-			{"c", "flair"},
-			{"u/d", "vote"},
-			{"n", "new post"},
-			{"x", "delete"},
-			{"esc", "boards"},
+			{"enter", "open"},
+			{"n", "new"},
+			{"/", "filter"},
+			{"?", "help"},
 			{"q", "quit"},
 		}
 	}
@@ -328,14 +411,11 @@ func (m *Model) viewPostDetail() string {
 	contextTitle := "/b/" + boardSlug + " · Discussion"
 
 	shortcuts := [][2]string{
-		{"j/k", "navigate"},
+		{"j/k", "move"},
 		{"r", "reply"},
-		{"R", "reply root"},
-		{"s", "sort"},
 		{"u/d", "vote"},
-		{"x", "delete"},
-		{"g/G", "top/end"},
 		{"esc", "back"},
+		{"?", "help"},
 		{"q", "quit"},
 	}
 
@@ -934,4 +1014,99 @@ func (m *Model) viewDeleteConfirm() string {
 	}
 
 	return m.renderAppShell("Confirm Deletion", lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
+}
+
+func formatHelpItem(key, desc string, maxW int) string {
+	k := styleStatusKey.Render(fmt.Sprintf("%-10s", key))
+	d := styleStatusDesc.Render(desc)
+	line := k + " " + d
+	if maxW > 0 && lipgloss.Width(line) > maxW {
+		avail := max(5, maxW-lipgloss.Width(k)-1)
+		line = k + " " + lipgloss.NewStyle().MaxWidth(avail).Render(d)
+	}
+	return line
+}
+
+// viewHelp renders the full keyboard shortcut cheatsheet modal.
+func (m *Model) viewHelp() string {
+	_, _, contentWidth, _ := m.shellDimensions()
+
+	cardWidth := min(76, max(48, contentWidth-2))
+	innerWidth := cardWidth - 6 // accounting for card border + padding
+
+	var content string
+	if innerWidth >= 58 {
+		// 2-column layout
+		colW := (innerWidth - 2) / 2
+
+		// Left Column: Navigation & Triage
+		var left strings.Builder
+		left.WriteString(stylePrompt.Render("NAVIGATION & FEED") + "\n")
+		left.WriteString(formatHelpItem("j / k", "Move cursor up / down", colW) + "\n")
+		left.WriteString(formatHelpItem("enter", "Open post / board", colW) + "\n")
+		left.WriteString(formatHelpItem("[ / ]", "Prev / next page", colW) + "\n")
+		left.WriteString(formatHelpItem("ctrl+d/u", "Jump half page", colW) + "\n")
+		left.WriteString(formatHelpItem("g / G", "Jump to top / bottom", colW) + "\n")
+		left.WriteString(formatHelpItem("esc", "Back to board list", colW) + "\n\n")
+
+		left.WriteString(stylePrompt.Render("TRIAGE & FILTER") + "\n")
+		left.WriteString(formatHelpItem("/", "Search / filter posts", colW) + "\n")
+		left.WriteString(formatHelpItem("s", "Cycle sort (Hot/New/Top)", colW) + "\n")
+		left.WriteString(formatHelpItem("c", "Cycle category flair", colW) + "\n")
+		left.WriteString(formatHelpItem("z", "Comfortable / compact", colW) + "\n")
+		left.WriteString(formatHelpItem("m", "Mark read / unread", colW) + "\n")
+		left.WriteString(formatHelpItem("H", "Toggle hide read", colW))
+
+		// Right Column: Discussions & General
+		var right strings.Builder
+		right.WriteString(stylePrompt.Render("DISCUSSIONS & COMMENTS") + "\n")
+		right.WriteString(formatHelpItem("r", "Reply to item", colW) + "\n")
+		right.WriteString(formatHelpItem("R", "Reply to root post", colW) + "\n")
+		right.WriteString(formatHelpItem("u / d", "Upvote / downvote", colW) + "\n")
+		right.WriteString(formatHelpItem("s", "Sort comments (Top/New/Old)", colW) + "\n")
+		right.WriteString(formatHelpItem("tab", "Next comment", colW) + "\n")
+		right.WriteString(formatHelpItem("shift+tab", "Previous comment", colW) + "\n")
+		right.WriteString(formatHelpItem("x", "Delete own post/comment", colW) + "\n\n")
+
+		right.WriteString(stylePrompt.Render("COMPOSERS & GLOBAL") + "\n")
+		right.WriteString(formatHelpItem("n", "New discussion post", colW) + "\n")
+		right.WriteString(formatHelpItem("ctrl+s", "Publish post / reply", colW) + "\n")
+		right.WriteString(formatHelpItem("h / l", "Select flair in composer", colW) + "\n")
+		right.WriteString(formatHelpItem("?", "Close this cheatsheet", colW) + "\n")
+		right.WriteString(formatHelpItem("q", "Quit ReadIT", colW))
+
+		leftBlock := lipgloss.NewStyle().Width(colW).Render(left.String())
+		rightBlock := lipgloss.NewStyle().Width(colW).Render(right.String())
+		content = lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, "  ", rightBlock)
+	} else {
+		// Single-column layout for narrow terminals
+		var s strings.Builder
+		s.WriteString(stylePrompt.Render("NAVIGATION & FEED") + "\n")
+		s.WriteString(formatHelpItem("j / k", "Move up / down", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("enter", "Open post / board", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("[ / ]", "Prev / next page", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("/", "Search posts", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("s", "Sort feed / comments", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("c", "Filter flair", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("r", "Reply to item", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("u / d", "Upvote / downvote", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("n", "New post", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("?", "Close cheatsheet", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("q", "Quit ReadIT", innerWidth))
+		content = s.String()
+	}
+
+	var cardBody strings.Builder
+	title := styleTitle.Render("Keyboard Cheatsheet")
+	sub := styleSubtitle.Render("All shortcuts across ReadIT (press [?] or [esc] to return)")
+	cardBody.WriteString(title + "\n" + sub + "\n\n")
+	cardBody.WriteString(content)
+
+	card := styleModalCard.Width(cardWidth).Render(cardBody.String())
+	shortcuts := [][2]string{
+		{"?", "close"},
+		{"esc", "back"},
+		{"q", "quit"},
+	}
+	return m.renderAppShell("Cheatsheet", lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), shortcuts)
 }

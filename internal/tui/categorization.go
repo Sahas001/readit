@@ -75,6 +75,7 @@ type PostFeedItem struct {
 	CreatedAt    pgtype.Timestamptz
 	IsDeleted    bool
 	Category     string
+	HotScore     float64
 	AuthorHandle string
 }
 
@@ -90,6 +91,7 @@ func hotRowToPost(r db.ListPostsByBoardHotRow) PostFeedItem {
 		CreatedAt:    r.CreatedAt,
 		IsDeleted:    r.IsDeleted,
 		Category:     r.Category,
+		HotScore:     r.HotScore,
 		AuthorHandle: r.AuthorHandle,
 	}
 }
@@ -106,6 +108,7 @@ func newRowToPost(r db.ListPostsByBoardNewRow) PostFeedItem {
 		CreatedAt:    r.CreatedAt,
 		IsDeleted:    r.IsDeleted,
 		Category:     r.Category,
+		HotScore:     r.HotScore,
 		AuthorHandle: r.AuthorHandle,
 	}
 }
@@ -122,6 +125,7 @@ func topRowToPost(r db.ListPostsByBoardTopRow) PostFeedItem {
 		CreatedAt:    r.CreatedAt,
 		IsDeleted:    r.IsDeleted,
 		Category:     r.Category,
+		HotScore:     r.HotScore,
 		AuthorHandle: r.AuthorHandle,
 	}
 }

@@ -154,5 +154,22 @@ This workspace operates under a collaborative ensemble of specialized autonomous
 }
 ```
 
+---
 
+## 8. Subagent: `innovation-council-lead`
 
+**Role**: Innovation Council & Ideation Orchestrator  
+**Scope**: Creative problem-solving, feature ideation, competitive design tournaments, and decision synthesis. Concurrently coordinates 3 specialized ideators (`tui-power-user`, `tui-creative-delight`, `pessimistic-systems-architect`) and 1 arbiter (`chief-arbiter`) to deliver high-signal decision memos for user approval.
+
+### Important Operating Policies for `innovation-council-lead`:
+1. **Explicit Invocation Only**: Do **NOT** invoke `innovation-council-lead` automatically during routine changes or bug fixes. Invoke it **ONLY** when the user requests creative problem solving, feature brainstorming, or architectural decision evaluation.
+2. **Advisory & Non-Destructive**: The council evaluates, designs, and recommends solutions. It never executes code or migration changes without explicit user approval.
+3. **Structured Council Decision Memo**: The agent must deliver a comprehensive scorecard comparing the 3 ideator proposals across User Value, Feasibility, Security/Performance, and Ecosystem Fit, concluding with clear decision options for the user.
+
+```json
+{
+  "TypeName": "innovation-council-lead",
+  "Role": "Innovation Council Lead",
+  "Prompt": "Convene the innovation council to solve [problem statement / feature idea]. Brainstorm 3 distinct solutions across power-user ergonomics, creative delight, and hardened systems, evaluate with the judge, and deliver a decision memo with your recommendation."
+}
+```

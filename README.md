@@ -87,14 +87,20 @@ Compose new posts and replies using floating modal dialogs with nested input box
 
 | Context | Key | Action |
 | :--- | :--- | :--- |
+| **Global** | `?` | Show complete keyboard cheatsheet modal |
 | **Global** | `q` / `Ctrl+C` | Quit session |
 | **Global** | `Esc` | Back / Cancel modal / Pop view |
 | **Navigation** | `j` / `↓` | Move cursor down |
 | **Navigation** | `k` / `↑` | Move cursor up |
+| **Navigation** | `Ctrl+D` / `Ctrl+U` | Half-page jump down / up |
 | **Navigation** | `g` / `Home` | Jump to top of list or thread |
 | **Navigation** | `G` / `End` | Jump to bottom of list or thread |
 | **Board List** | `Enter` | Enter selected board |
-| **Post Feed** | `Enter` | View discussion thread & comments |
+| **Post Feed** | `Enter` | View discussion thread & comments (marks post as read) |
+| **Post Feed** | `z` | Toggle Dual-Density mode: **Compact** (1-line, 18 posts) vs **Comfortable** (3-line card) |
+| **Post Feed** | `]` / `[` | Next / Previous page (keyset cursor seek $O(\log N)$) |
+| **Post Feed** | `m` | Toggle mark-as-read / unread (dims read items) |
+| **Post Feed** | `H` | Toggle hide-read discussions (session inbox-zero triage) |
 | **Post Feed** | `/` | Search discussions in active board (`Enter` to submit, `Esc` to clear) |
 | **Post Feed** | `s` | Cycle feed sort order (`hot` → `new` → `top`) |
 | **Post Feed** | `c` | Cycle flair filter (`all` → `general` → `discussion` → `question` → `showcase` → `guide` → `news`) |
@@ -207,6 +213,7 @@ This project is developed under an ensemble of specialized workspace autonomous 
 - **`tui-qa-tester`**: Quality Assurance Engineer driving autonomous tmux navigation and multimodal visual inspection.
 - **`git-expert`**: Git & Release Engineer enforcing staging hygiene and Conventional Commits.
 - **`backend-db-auditor`**: Database & Backend Integrity Auditor inspecting schema consistency, transactional boundaries, query efficiency, and security vulnerabilities.
+- **`innovation-council-lead`**: Innovation Council & Ideation Orchestrator driving 4-agent problem-solving tournaments and decision memos.
 
 ---
 

@@ -50,6 +50,7 @@ type Post struct {
 	IsDeleted    bool               `json:"is_deleted"`
 	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
 	Category     string             `json:"category"`
+	HotScore     float64            `json:"hot_score"`
 }
 
 type PostVote struct {

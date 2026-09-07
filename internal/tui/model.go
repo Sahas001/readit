@@ -34,6 +34,7 @@ const (
 	viewNewPost
 	viewNewComment
 	viewDeleteConfirm
+	viewHelp
 	viewError
 )
 
@@ -68,10 +69,11 @@ type Model struct {
 	user        *db.User
 
 	// UI state.
-	currentView viewState
-	width       int
-	height      int
-	err         error
+	currentView    viewState
+	helpReturnView viewState
+	width          int
+	height         int
+	err            error
 
 	// Key bindings.
 	keys KeyMap
@@ -92,6 +94,15 @@ type Model struct {
 	searchQuery    string // Active search query filter
 	searchInput    textinput.Model
 	searchFocused  bool
+
+	// Keyset feed pagination & triage.
+	feedPage      int                // 1-indexed current page
+	feedPageStack []PostCursor       // stack of cursors for visited pages
+	hasNextPage   bool               // whether a next page exists
+	compactMode   bool               // 'z' toggle: false = comfortable (3-line), true = compact (1-line)
+	readPosts     map[int64]bool     // session-local read triage
+	hideRead      bool               // 'H' toggle to hide read posts
+	postsCancel   context.CancelFunc // in-flight post fetch cancel func
 
 	// Post detail & comments.
 	currentPost        *db.GetPostByIDRow
@@ -134,9 +145,28 @@ type boardsLoadedMsg struct {
 	boards []db.Board
 }
 
-// postsLoadedMsg carries posts for a board.
+// PostCursor encapsulates keyset position for O(log N) composite index seeking.
+type PostCursor struct {
+	ID        int64
+	Score     int32
+	CreatedAt time.Time
+	HotScore  float64
+}
+
+func postToCursor(p PostFeedItem) PostCursor {
+	return PostCursor{
+		ID:        p.ID,
+		Score:     p.Score,
+		CreatedAt: p.CreatedAt.Time,
+		HotScore:  p.HotScore,
+	}
+}
+
+// postsLoadedMsg carries posts for a board along with keyset pagination metadata.
 type postsLoadedMsg struct {
-	posts []PostFeedItem
+	posts   []PostFeedItem
+	hasMore bool
+	page    int
 }
 
 // postDetailLoadedMsg carries the post details and its threaded comments.
@@ -266,6 +296,8 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 		searchInput:  searchIn,
 		viewport:      vp,
 		commentCursor: -1,
+		feedPage:      1,
+		readPosts:     make(map[int64]bool),
 	}
 }
 
@@ -316,6 +348,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case postsLoadedMsg:
 		prevCursor := m.postCursor
 		m.posts = msg.posts
+		m.hasNextPage = msg.hasMore
+		m.feedPage = msg.page
 		m.currentView = viewPostList
 		if prevCursor < len(m.posts) {
 			m.postCursor = prevCursor
@@ -452,6 +486,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateNewComment(msg)
 	case viewDeleteConfirm:
 		return m.updateDeleteConfirm(msg)
+	case viewHelp:
+		return m.updateHelp(msg)
 	}
 
 	return m, nil
@@ -476,6 +512,8 @@ func (m *Model) View() string {
 		return m.viewNewComment()
 	case viewDeleteConfirm:
 		return m.viewDeleteConfirm()
+	case viewHelp:
+		return m.viewHelp()
 	case viewError:
 		return m.viewError()
 	default:
@@ -580,6 +618,10 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case msg.String() == "?":
+			m.helpReturnView = viewBoardList
+			m.currentView = viewHelp
+			return m, nil
 		case msg.String() == "q":
 			return m, tea.Quit
 		case msg.String() == "k" || msg.String() == "up":
@@ -600,6 +642,9 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 			if len(m.boards) > 0 {
 				board := m.boards[m.boardCursor]
 				m.currentBoard = &board
+				m.postCursor = 0
+				m.feedPage = 1
+				m.feedPageStack = nil
 				m.searchQuery = ""
 				m.searchInput.SetValue("")
 				m.searchFocused = false
@@ -613,60 +658,128 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 // --- Post list ---------------------------------------------------------
 
 func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
+	// Cancel any active in-flight post fetch to immediately free the database connection
+	if m.postsCancel != nil {
+		m.postsCancel()
+		m.postsCancel = nil
+	}
+
+	baseCtx := m.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	fetchCtx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
+	m.postsCancel = cancel
+
 	sortMode := m.postSortMode
 	catFilter := m.categoryFilter
 	searchQuery := m.searchQuery
+	page := m.feedPage
+	if page < 1 {
+		page = 1
+	}
+
+	var cursor *PostCursor
+	if page > 1 && len(m.feedPageStack) >= page-1 {
+		c := m.feedPageStack[page-2]
+		cursor = &c
+	}
 
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
 		// Proactively prune any empty soft-deleted posts
-		_ = m.queries.PruneAllEmptyDeletedPosts(ctx)
+		_ = m.queries.PruneAllEmptyDeletedPosts(fetchCtx)
 
 		var feedItems []PostFeedItem
+		var hasMore bool
 
 		switch sortMode {
 		case PostSortHot:
-			rows, err := m.queries.ListPostsByBoardHot(ctx, db.ListPostsByBoardHotParams{
-				BoardID:     boardID,
-				Limit:       50,
-				Offset:      0,
-				Category:    catFilter,
-				SearchQuery: searchQuery,
+			var curHot pgtype.Float8
+			var curID pgtype.Int8
+			if cursor != nil && cursor.ID > 0 {
+				curHot = pgtype.Float8{Float64: cursor.HotScore, Valid: true}
+				curID = pgtype.Int8{Int64: cursor.ID, Valid: true}
+			}
+			rows, err := m.queries.ListPostsByBoardHot(fetchCtx, db.ListPostsByBoardHotParams{
+				BoardID:        boardID,
+				Limit:          51,
+				Category:       catFilter,
+				SearchQuery:    searchQuery,
+				CursorHotScore: curHot,
+				CursorID:       curID,
 			})
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return nil
+				}
 				return errMsg{err: fmt.Errorf("loading hot posts: %w", err)}
+			}
+			if len(rows) > 50 {
+				hasMore = true
+				rows = rows[:50]
 			}
 			feedItems = make([]PostFeedItem, len(rows))
 			for i, r := range rows {
 				feedItems[i] = hotRowToPost(r)
 			}
 		case PostSortTop:
-			rows, err := m.queries.ListPostsByBoardTop(ctx, db.ListPostsByBoardTopParams{
-				BoardID:     boardID,
-				Limit:       50,
-				Offset:      0,
-				Category:    catFilter,
-				SearchQuery: searchQuery,
+			var curScore pgtype.Int4
+			var curCreated pgtype.Timestamptz
+			var curID pgtype.Int8
+			if cursor != nil && cursor.ID > 0 {
+				curScore = pgtype.Int4{Int32: cursor.Score, Valid: true}
+				curCreated = pgtype.Timestamptz{Time: cursor.CreatedAt, Valid: true}
+				curID = pgtype.Int8{Int64: cursor.ID, Valid: true}
+			}
+			rows, err := m.queries.ListPostsByBoardTop(fetchCtx, db.ListPostsByBoardTopParams{
+				BoardID:         boardID,
+				Limit:           51,
+				Category:        catFilter,
+				SearchQuery:     searchQuery,
+				CursorScore:     curScore,
+				CursorCreatedAt: curCreated,
+				CursorID:        curID,
 			})
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return nil
+				}
 				return errMsg{err: fmt.Errorf("loading top posts: %w", err)}
+			}
+			if len(rows) > 50 {
+				hasMore = true
+				rows = rows[:50]
 			}
 			feedItems = make([]PostFeedItem, len(rows))
 			for i, r := range rows {
 				feedItems[i] = topRowToPost(r)
 			}
 		default: // PostSortNew
-			rows, err := m.queries.ListPostsByBoardNew(ctx, db.ListPostsByBoardNewParams{
-				BoardID:     boardID,
-				Limit:       50,
-				Offset:      0,
-				Category:    catFilter,
-				SearchQuery: searchQuery,
+			var curCreated pgtype.Timestamptz
+			var curID pgtype.Int8
+			if cursor != nil && cursor.ID > 0 {
+				curCreated = pgtype.Timestamptz{Time: cursor.CreatedAt, Valid: true}
+				curID = pgtype.Int8{Int64: cursor.ID, Valid: true}
+			}
+			rows, err := m.queries.ListPostsByBoardNew(fetchCtx, db.ListPostsByBoardNewParams{
+				BoardID:         boardID,
+				Limit:           51,
+				Category:        catFilter,
+				SearchQuery:     searchQuery,
+				CursorCreatedAt: curCreated,
+				CursorID:        curID,
 			})
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return nil
+				}
 				return errMsg{err: fmt.Errorf("loading new posts: %w", err)}
+			}
+			if len(rows) > 50 {
+				hasMore = true
+				rows = rows[:50]
 			}
 			feedItems = make([]PostFeedItem, len(rows))
 			for i, r := range rows {
@@ -674,7 +787,7 @@ func (m *Model) loadPostsCmd(boardID int64) tea.Cmd {
 			}
 		}
 
-		return postsLoadedMsg{posts: feedItems}
+		return postsLoadedMsg{posts: feedItems, hasMore: hasMore, page: page}
 	}
 }
 
@@ -696,7 +809,23 @@ func (m *Model) cycleCategoryFilter() {
 	m.categoryFilter = ""
 }
 
+// visiblePosts returns the active list of posts honoring session read triage.
+func (m *Model) visiblePosts() []PostFeedItem {
+	if !m.hideRead {
+		return m.posts
+	}
+	filtered := make([]PostFeedItem, 0, len(m.posts))
+	for _, p := range m.posts {
+		if !m.readPosts[p.ID] {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
+}
+
 func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
+	visible := m.visiblePosts()
+
 	if m.searchFocused {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -706,6 +835,8 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 				m.searchFocused = false
 				m.searchInput.Blur()
 				m.postCursor = 0
+				m.feedPage = 1
+				m.feedPageStack = nil
 				if m.searchQuery != "" {
 					m.flashMsg = fmt.Sprintf("• Searching for %q", m.searchQuery)
 				} else {
@@ -722,6 +853,8 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 					m.searchQuery = ""
 					m.searchInput.SetValue("")
 					m.postCursor = 0
+					m.feedPage = 1
+					m.feedPageStack = nil
 					m.flashMsg = "• Search cleared"
 					if m.currentBoard != nil {
 						return m, m.loadPostsCmd(m.currentBoard.ID)
@@ -744,6 +877,10 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case msg.String() == "?":
+			m.helpReturnView = viewPostList
+			m.currentView = viewHelp
+			return m, nil
 		case msg.String() == "/":
 			m.searchFocused = true
 			m.searchInput.Focus()
@@ -755,6 +892,8 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 				m.searchQuery = ""
 				m.searchInput.SetValue("")
 				m.postCursor = 0
+				m.feedPage = 1
+				m.feedPageStack = nil
 				m.flashMsg = "• Search cleared"
 				if m.currentBoard != nil {
 					return m, m.loadPostsCmd(m.currentBoard.ID)
@@ -768,19 +907,21 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 				m.postCursor--
 			}
 		case msg.String() == "j" || msg.String() == "down":
-			if m.postCursor < len(m.posts)-1 {
+			if m.postCursor < len(visible)-1 {
 				m.postCursor++
 			}
 		case msg.String() == "g" || msg.String() == "home":
 			m.postCursor = 0
 		case msg.String() == "G" || msg.String() == "end":
-			if len(m.posts) > 0 {
-				m.postCursor = len(m.posts) - 1
+			if len(visible) > 0 {
+				m.postCursor = len(visible) - 1
 			}
 		case msg.String() == "s":
 			m.postSortMode = (m.postSortMode + 1) % 3
 			m.flashMsg = "• Posts sorted by " + m.postSortMode.String()
 			m.postCursor = 0
+			m.feedPage = 1
+			m.feedPageStack = nil
 			if m.currentBoard != nil {
 				return m, m.loadPostsCmd(m.currentBoard.ID)
 			}
@@ -793,22 +934,100 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 				m.flashMsg = "• Flair: " + m.categoryFilter
 			}
 			m.postCursor = 0
+			m.feedPage = 1
+			m.feedPageStack = nil
 			if m.currentBoard != nil {
 				return m, m.loadPostsCmd(m.currentBoard.ID)
 			}
 			return m, nil
+		case msg.String() == "z":
+			m.compactMode = !m.compactMode
+			if m.compactMode {
+				m.flashMsg = "• Compact view enabled"
+			} else {
+				m.flashMsg = "• Comfortable view enabled"
+			}
+			return m, nil
+		case msg.String() == "]" || msg.String() == "pgdown" || msg.String() == "ctrl+f":
+			if !m.hasNextPage || len(m.posts) == 0 {
+				m.flashMsg = "• At last page"
+				return m, nil
+			}
+			lastPost := m.posts[len(m.posts)-1]
+			nextCursor := postToCursor(lastPost)
+			if len(m.feedPageStack) >= m.feedPage {
+				m.feedPageStack[m.feedPage-1] = nextCursor
+			} else {
+				m.feedPageStack = append(m.feedPageStack, nextCursor)
+			}
+			m.feedPage++
+			m.postCursor = 0
+			m.flashMsg = fmt.Sprintf("• Page %d", m.feedPage)
+			if m.currentBoard != nil {
+				return m, m.loadPostsCmd(m.currentBoard.ID)
+			}
+			return m, nil
+		case msg.String() == "[" || msg.String() == "pgup" || msg.String() == "ctrl+b":
+			if m.feedPage <= 1 {
+				m.flashMsg = "• Already on first page"
+				return m, nil
+			}
+			m.feedPage--
+			m.postCursor = 0
+			m.flashMsg = fmt.Sprintf("• Page %d", m.feedPage)
+			if m.currentBoard != nil {
+				return m, m.loadPostsCmd(m.currentBoard.ID)
+			}
+			return m, nil
+		case msg.String() == "ctrl+d":
+			jump := 5
+			if m.compactMode {
+				jump = 12
+			}
+			if len(visible) > 0 {
+				m.postCursor = min(len(visible)-1, m.postCursor+jump)
+			}
+			return m, nil
+		case msg.String() == "ctrl+u":
+			jump := 5
+			if m.compactMode {
+				jump = 12
+			}
+			m.postCursor = max(0, m.postCursor-jump)
+			return m, nil
+		case msg.String() == "m":
+			if len(visible) > 0 && m.postCursor < len(visible) {
+				post := visible[m.postCursor]
+				m.readPosts[post.ID] = !m.readPosts[post.ID]
+				if m.readPosts[post.ID] {
+					m.flashMsg = "• Marked discussion as read"
+				} else {
+					m.flashMsg = "• Marked discussion as unread"
+				}
+			}
+			return m, nil
+		case msg.String() == "H":
+			m.hideRead = !m.hideRead
+			if m.hideRead {
+				m.flashMsg = "• Hiding read discussions"
+			} else {
+				m.flashMsg = "• Showing all discussions"
+			}
+			m.postCursor = 0
+			return m, nil
 		case msg.String() == "enter":
-			if len(m.posts) > 0 {
-				post := m.posts[m.postCursor]
+			if len(visible) > 0 && m.postCursor < len(visible) {
+				post := visible[m.postCursor]
+				m.readPosts[post.ID] = true
 				return m, m.loadPostDetailCmd(post.ID)
 			}
 		case msg.String() == "n":
 			return m, m.openNewPost()
 		case msg.String() == "x":
-			if len(m.posts) == 0 {
+			if len(visible) == 0 || m.postCursor >= len(visible) {
 				return m, nil
 			}
-			post := m.posts[m.postCursor]
+			post := visible[m.postCursor]
 			if post.IsDeleted {
 				m.flashMsg = "• Post is already deleted"
 				return m, nil
@@ -830,8 +1049,8 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 			m.currentView = viewDeleteConfirm
 			return m, nil
 		case msg.String() == "u":
-			if len(m.posts) > 0 {
-				post := m.posts[m.postCursor]
+			if len(visible) > 0 && m.postCursor < len(visible) {
+				post := visible[m.postCursor]
 				if post.IsDeleted {
 					m.flashMsg = "• Voting is disabled on deleted content"
 					return m, nil
@@ -839,8 +1058,8 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 				return m, m.castPostVoteCmd(post.ID, 1)
 			}
 		case msg.String() == "d":
-			if len(m.posts) > 0 {
-				post := m.posts[m.postCursor]
+			if len(visible) > 0 && m.postCursor < len(visible) {
+				post := visible[m.postCursor]
 				if post.IsDeleted {
 					m.flashMsg = "• Voting is disabled on deleted content"
 					return m, nil
@@ -969,6 +1188,10 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "?":
+			m.helpReturnView = viewPostDetail
+			m.currentView = viewHelp
+			return m, nil
 		case "esc":
 			m.currentView = viewPostList
 			if m.currentBoard != nil {
@@ -1539,4 +1762,23 @@ func (m *Model) executeDeleteCmd(target *deleteTarget) tea.Cmd {
 		return commentDeletedMsg{commentID: target.id, postID: target.postID, isSoft: isSoft}
 	}
 }
+
+// --- Keyboard Help Modal -----------------------------------------------
+
+func (m *Model) updateHelp(msg tea.Msg) (*Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "?", "esc", "enter", "q":
+			targetView := m.helpReturnView
+			if targetView == viewLoading || targetView == viewHelp {
+				targetView = viewBoardList
+			}
+			m.currentView = targetView
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
 
