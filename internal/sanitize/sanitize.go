@@ -3,9 +3,12 @@
 package sanitize
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
+
+	goaway "github.com/TwiN/go-away"
 )
 
 // ValidHandleRegex enforces alphanumeric handles with underscores and hyphens (3 to 20 chars).
@@ -22,6 +25,7 @@ var ansiEscapeRegex = regexp.MustCompile(`\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\
 // - Length between 3 and 20 characters
 // - Strictly alphanumeric, underscores, or hyphens
 // - Cannot start or end with a hyphen or underscore
+// - Cannot contain profane or prohibited language
 func ValidateHandle(handle string) error {
 	trimmed := strings.TrimSpace(handle)
 	if len(trimmed) < 3 || len(trimmed) > 20 {
@@ -32,6 +36,62 @@ func ValidateHandle(handle string) error {
 	}
 	if trimmed[0] == '-' || trimmed[0] == '_' || trimmed[len(trimmed)-1] == '-' || trimmed[len(trimmed)-1] == '_' {
 		return &ValidationError{Msg: "handle cannot start or end with an underscore or hyphen"}
+	}
+	if ContainsProfanity(trimmed) {
+		return &ValidationError{Msg: "handle contains prohibited language"}
+	}
+	return nil
+}
+
+var (
+	// customFalsePositives extends goaway.DefaultFalsePositives to protect legitimate technical
+	// and conversational terms from false positives (Scunthorpe problem).
+	customFalsePositives = append(append([]string{}, goaway.DefaultFalsePositives...),
+		"cockpit",
+		"cockpits",
+		"cocktail",
+		"cocktails",
+		"peacock",
+		"peacocks",
+		"woodcock",
+		"shuttlecock",
+		"cockerel",
+		"anuser", // prevents false-positive 'anus' on compound words like clean_user, urban_user
+	)
+
+	// profanityDetector is our configured, thread-safe moderation detector.
+	profanityDetector = goaway.NewProfanityDetector().WithCustomDictionary(
+		goaway.DefaultProfanities,
+		customFalsePositives,
+		goaway.DefaultFalseNegatives,
+	)
+)
+
+// ContainsProfanity checks if the input text contains prohibited profane or derogatory language.
+func ContainsProfanity(text string) bool {
+	return profanityDetector.IsProfane(text)
+}
+
+// ExtractProfanity returns the first detected prohibited word or an empty string if none are found.
+func ExtractProfanity(text string) string {
+	return profanityDetector.ExtractProfanity(text)
+}
+
+// Censor redacts profanities within the text by replacing them with asterisks.
+func Censor(text string) string {
+	return profanityDetector.Censor(text)
+}
+
+// ValidateCleanContent verifies that user-submitted content (title, body, url, or comment)
+// does not contain prohibited language. If profanity is detected, it returns a descriptive
+// ValidationError suitable for displaying directly in the TUI composer.
+func ValidateCleanContent(field, text string) error {
+	if profanityDetector.IsProfane(text) {
+		badWord := profanityDetector.ExtractProfanity(text)
+		if badWord != "" {
+			return &ValidationError{Msg: fmt.Sprintf("%s contains prohibited language (%s)", field, badWord)}
+		}
+		return &ValidationError{Msg: fmt.Sprintf("%s contains prohibited language", field)}
 	}
 	return nil
 }

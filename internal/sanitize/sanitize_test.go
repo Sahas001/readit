@@ -91,3 +91,66 @@ func TestSingleLine(t *testing.T) {
 		t.Errorf("SingleLine(%q) = %q, expected %q", input, got, expected)
 	}
 }
+
+func TestProfanityFilter(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		isProfane bool
+	}{
+		{"clean discussion", "Welcome to our Go terminal forum!", false},
+		{"clean technical talk", "Using postgres connection pooling and indexes", false},
+		{"false positive safe word classic", "This is a classic architectural pattern", false},
+		{"false positive safe word cockpit", "Pilot sitting in the cockpit", false},
+		{"false positive safe word assassin", "Playing Assassin's Creed", false},
+		{"false positive safe word basement", "The server rack is in the basement", false},
+		{"explicit curse word", "This is total bullshit", true},
+		{"f-word variation", "What the fuck is this", true},
+		{"leetspeak profanity", "You are a b!tch", true},
+		{"spaced out profanity", "This is s h i t", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitize.ContainsProfanity(tt.input)
+			if got != tt.isProfane {
+				t.Errorf("ContainsProfanity(%q) = %v, expected %v", tt.input, got, tt.isProfane)
+			}
+		})
+	}
+}
+
+func TestValidateCleanContent(t *testing.T) {
+	// Clean content returns nil error
+	if err := sanitize.ValidateCleanContent("title", "A clean post title"); err != nil {
+		t.Errorf("expected clean content to pass, got err=%v", err)
+	}
+
+	// Profane content returns descriptive ValidationError
+	err := sanitize.ValidateCleanContent("title", "This is fucking broken")
+	if err == nil {
+		t.Errorf("expected profane content to be rejected, got nil")
+	} else if _, ok := err.(*sanitize.ValidationError); !ok {
+		t.Errorf("expected *sanitize.ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCensor(t *testing.T) {
+	censored := sanitize.Censor("This is shit")
+	if sanitize.ContainsProfanity(censored) {
+		t.Errorf("expected censored text %q to no longer trigger profanity filter", censored)
+	}
+}
+
+func TestValidateHandle_Profanity(t *testing.T) {
+	// Clean handles
+	if err := sanitize.ValidateHandle("clean_user"); err != nil {
+		t.Errorf("expected clean handle to pass, got: %v", err)
+	}
+
+	// Profane handle
+	if err := sanitize.ValidateHandle("bad_asshole_99"); err == nil {
+		t.Errorf("expected profane handle to be rejected, got nil")
+	}
+}
+

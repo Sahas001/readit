@@ -1581,7 +1581,25 @@ func (m *Model) updateNewPost(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 			url := strings.TrimSpace(m.urlInput.Value())
 			body := strings.TrimSpace(m.bodyInput.Value())
+
+			if err := sanitize.ValidateCleanContent("post title", title); err != nil {
+				m.err = err
+				return m, nil
+			}
+			if err := sanitize.ValidateCleanContent("post body", body); err != nil {
+				m.err = err
+				return m, nil
+			}
+			if url != "" {
+				if err := sanitize.ValidateCleanContent("post URL", url); err != nil {
+					m.err = err
+					return m, nil
+				}
+			}
+
 			return m, m.submitPostCmd(title, body, url)
+		default:
+			m.err = nil
 		}
 
 		if m.postFormFocus == 1 {
@@ -1618,6 +1636,18 @@ func (m *Model) submitPostCmd(title, body, url string) tea.Cmd {
 		if m.user == nil || m.currentBoard == nil {
 			return errMsg{err: fmt.Errorf("missing user or board context")}
 		}
+		if err := sanitize.ValidateCleanContent("post title", title); err != nil {
+			return errMsg{err: err}
+		}
+		if err := sanitize.ValidateCleanContent("post body", body); err != nil {
+			return errMsg{err: err}
+		}
+		if url != "" {
+			if err := sanitize.ValidateCleanContent("post URL", url); err != nil {
+				return errMsg{err: err}
+			}
+		}
+
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
@@ -1662,7 +1692,13 @@ func (m *Model) updateNewComment(msg tea.Msg) (*Model, tea.Cmd) {
 				m.err = fmt.Errorf("comment cannot be empty")
 				return m, nil
 			}
+			if err := sanitize.ValidateCleanContent("comment", body); err != nil {
+				m.err = err
+				return m, nil
+			}
 			return m, m.submitCommentCmd(body)
+		default:
+			m.err = nil
 		}
 	}
 
@@ -1676,6 +1712,10 @@ func (m *Model) submitCommentCmd(body string) tea.Cmd {
 		if m.user == nil || m.currentPost == nil {
 			return errMsg{err: fmt.Errorf("missing user or post context")}
 		}
+		if err := sanitize.ValidateCleanContent("comment", body); err != nil {
+			return errMsg{err: err}
+		}
+
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 

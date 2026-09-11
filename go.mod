@@ -13,6 +13,7 @@ require (
 )
 
 require (
+	github.com/TwiN/go-away v1.8.1 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
