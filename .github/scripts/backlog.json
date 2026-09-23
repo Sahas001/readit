@@ -1,0 +1,53 @@
+[
+  {
+    "id": "rfc-ssh-key-auth",
+    "title": "RFC 001: Automatic SSH public key fingerprint authentication",
+    "branch_slug": "rfc-ssh-key-auth",
+    "description": "Design specification for zero-friction passwordless authentication by extracting client public keys directly in Charm Wish.",
+    "files": {
+      "docs/rfcs/001-ssh-key-auth.md": "# RFC 001: Automatic SSH Public Key Authentication\n\n- **Status**: Proposed\n- **Author**: Sahas Timilsina\n- **Created**: 2026-09-24\n\n## Context & Problem Statement\n\nReadIT currently requires interactive login or guest browsing. For an SSH-native application, the gold standard user experience is recognizing the user by their client public key (e.g. `~/.ssh/id_ed25519.pub`) without prompting for passwords.\n\n## Technical Architecture\n\nIn Charm Wish (`github.com/charmbracelet/wish`), the `ssh.Session` exposes the client's public key via `session.PublicKey()`:\n\n```go\nfunc SessionAuthMiddleware(next ssh.Handler) ssh.Handler {\n    return func(sess ssh.Session) {\n        pubKey := sess.PublicKey()\n        if pubKey != nil {\n            fingerprint := gossh.FingerprintSHA256(pubKey)\n            // Lookup or auto-register user by fingerprint in PostgreSQL\n        }\n        next(sess)\n    }\n}\n```\n\n## Database Migration\n\nAdd `ssh_fingerprint` to `users` table:\n\n```sql\nALTER TABLE users ADD COLUMN IF NOT EXISTS ssh_fingerprint TEXT UNIQUE;\nCREATE INDEX IF NOT EXISTS idx_users_ssh_fingerprint ON users(ssh_fingerprint);\n```\n\n## First-Time User Experience\n\n1. User runs `ssh readit.domain`.\n2. Wish server checks public key fingerprint.\n3. If new, prompts for a desired username and links it to the fingerprint.\n4. Future connections immediately authenticate the user into their session.\n"
+    },
+    "pr_body": "## Summary\n\nThis PR introduces **RFC 001: Automatic SSH Public Key Authentication**.\n\n### Why this is critical for ReadIT\nBy leveraging SSH public keys, users can connect seamlessly (`ssh readit.domain`) and remain logged in across devices without entering passwords or tokens in terminal input fields.\n\n### Review Checklist\n- [x] Schema migration proposal included\n- [x] Wish middleware hook identified (`sess.PublicKey()`)\n- [x] Security considerations (fingerprint collisions, key rotation) documented"
+  },
+  {
+    "id": "rfc-glamour-rendering",
+    "title": "RFC 002: Glamour markdown rendering for post bodies",
+    "branch_slug": "rfc-glamour-rendering",
+    "description": "Specify the integration of Charm's Glamour markdown renderer for rich formatting, syntax highlighting, and responsive word wrapping in post discussions.",
+    "files": {
+      "docs/rfcs/002-glamour-rendering.md": "# RFC 002: Rich Markdown Rendering with Glamour\n\n- **Status**: Proposed\n- **Author**: Sahas Timilsina\n- **Created**: 2026-09-24\n\n## Objective\n\nUpgrade post body and comment display in the ReadIT terminal UI from plain text to styled ANSI Markdown using `github.com/charmbracelet/glamour`.\n\n## Key Features\n\n1. **Syntax Highlighting**: Render fenced code blocks (Go, Python, Rust, SQL, JS) with terminal 256/TrueColor syntax themes.\n2. **Dynamic Viewport Width**: Adjust Glamour rendering word-wrap dynamically on `tea.WindowSizeMsg`.\n3. **Theme Harmonization**: Match Glamour's renderer style (`dark`, `light`, `notty`) with ReadIT's Lip Gloss theme system.\n\n## Proposed Implementation (`internal/tui/markdown.go`)\n\n```go\nvar renderer, _ = glamour.NewTermRenderer(\n    glamour.WithStandardStyle(\"dark\"),\n    glamour.WithWordWrap(width),\n)\n\nrenderedContent, err := renderer.Render(post.Content)\n```\n"
+    },
+    "pr_body": "## Summary\n\nThis PR proposes **RFC 002: Rich Markdown Rendering with Glamour**, enabling GitHub-style markdown and syntax highlighting directly inside the ReadIT post viewer.\n\n### Benefits\n- Greatly improves readability for code-sharing and technical discussions.\n- Matches terminal color palettes automatically."
+  },
+  {
+    "id": "deploy-systemd-guide",
+    "title": "Add production systemd unit and deployment runbook",
+    "branch_slug": "deploy-systemd-guide",
+    "description": "Provide a production-ready systemd service configuration, environment setup, and deployment guide for hosting ReadIT on Linux VPS instances.",
+    "files": {
+      "deploy/readit.service": "[Unit]\nDescription=ReadIT SSH Terminal Forum Server\nAfter=network.target postgresql.service\n\n[Service]\nType=simple\nUser=readit\nGroup=readit\nWorkingDirectory=/opt/readit\nExecStart=/opt/readit/bin/readit-server\nRestart=always\nRestartSec=5s\n\n# Security sandboxing\nProtectSystem=strict\nProtectHome=true\nNoNewPrivileges=true\nPrivateTmp=true\nReadWritePaths=/opt/readit/.ssh\n\n# Environment\nEnvironmentFile=/opt/readit/.env\nLimitNOFILE=65535\n\n[Install]\nWantedBy=multi-user.target\n",
+      "docs/deploy/systemd-guide.md": "# ReadIT Production Deployment Guide\n\nThis guide covers running ReadIT as a persistent Linux service under systemd on Debian/Ubuntu/Fedora VPS.\n\n## 1. Prerequisites\n\n- PostgreSQL 15+ installed and running.\n- Dedicated non-root user `readit`:\n  ```bash\n  sudo useradd -r -s /bin/false -d /opt/readit readit\n  sudo mkdir -p /opt/readit/bin /opt/readit/.ssh\n  ```\n\n## 2. Install Service\n\nCopy `deploy/readit.service` to `/etc/systemd/system/`:\n\n```bash\nsudo cp deploy/readit.service /etc/systemd/system/\nsudo systemctl daemon-reload\nsudo systemctl enable --now readit\n```\n\n## 3. Verify\n\n```bash\nsudo systemctl status readit\njournalctl -u readit -f\n```\n"
+    },
+    "pr_body": "## Summary\n\nThis PR provides complete production deployment assets:\n- `deploy/readit.service`: Hardened systemd unit file with security isolation (`ProtectSystem`, `NoNewPrivileges`).\n- `docs/deploy/systemd-guide.md`: Step-by-step production runbook for VPS deployments.\n\n### Review Points\n- Tested service restart policies and security flags."
+  },
+  {
+    "id": "rfc-rate-limiting",
+    "title": "RFC 003: Token bucket rate limiting and anti-spam middleware",
+    "branch_slug": "rfc-rate-limiting",
+    "description": "Design specification for connection rate limiting and post flood protection to secure public ReadIT SSH endpoints.",
+    "files": {
+      "docs/rfcs/003-rate-limiting.md": "# RFC 003: Rate Limiting & Anti-Spam Middleware\n\n- **Status**: Proposed\n- **Author**: Sahas Timilsina\n- **Created**: 2026-09-24\n\n## Context\n\nWhen ReadIT is exposed over public SSH (e.g. port 22 or 2222), bots and automated scrapers will attempt connection floods and spam post creation. We need multi-layer protection.\n\n## Architecture\n\n1. **Connection Rate Limiter**: Limit SSH handshakes per remote IP address (e.g., max 10 attempts/minute) using `golang.org/x/time/rate`.\n2. **Action Rate Limiter**: Limit new posts (e.g., max 1 post per 2 minutes per user/fingerprint) and comments (max 10 comments per 5 minutes).\n3. **Graceful Notification**: When throttled, display a styled Lip Gloss alert modal rather than abruptly terminating the SSH session.\n"
+    },
+    "pr_body": "## Summary\n\nThis PR proposes **RFC 003: Rate Limiting & Anti-Spam Middleware** to protect public ReadIT instances against connection saturation and forum spam."
+  },
+  {
+    "id": "sanitize-benchmark-tests",
+    "title": "Add benchmark test suite for input sanitizer",
+    "branch_slug": "sanitize-benchmark-tests",
+    "description": "Add Go benchmark tests for internal/sanitize package to evaluate throughput and memory allocations on high-volume inputs.",
+    "files": {
+      "internal/sanitize/sanitize_benchmark_test.go": "package sanitize_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n\n\t\"github.com/Sahas001/readit/internal/sanitize\"\n)\n\nfunc BenchmarkSanitizeText_Short(b *testing.B) {\n\tinput := \"Hello world! This is a simple forum title with ANSI \\x1b[31mred\\x1b[0m text.\"\n\tb.ResetTimer()\n\tfor i := 0; i < b.N; i++ {\n\t\t_ = sanitize.Text(input)\n\t}\n}\n\nfunc BenchmarkSanitizeText_Long(b *testing.B) {\n\tinput := strings.Repeat(\"Lorem ipsum dolor sit amet, consectetur adipiscing elit. \\x1b[32mHighlighted\\x1b[0m\\n\", 100)\n\tb.ResetTimer()\n\tfor i := 0; i < b.N; i++ {\n\t\t_ = sanitize.Text(input)\n\t}\n}\n"
+    },
+    "pr_body": "## Summary\n\nThis PR adds benchmark tests in `internal/sanitize/sanitize_benchmark_test.go` to measure throughput and allocation overhead in text sanitization.\n\n### Run Command\n```bash\ngo test -bench=. ./internal/sanitize\n```"
+  }
+]
