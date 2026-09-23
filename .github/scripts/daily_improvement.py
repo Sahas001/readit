@@ -140,7 +140,7 @@ def main():
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "w", encoding="utf-8") as f:
             f.write(content)
-        run_cmd(["git", "add", rel_path])
+        run_cmd(["git", "add", "-f", rel_path])
 
     commit_msg = f"improvement: {item['title']}"
     run_cmd(["git", "commit", "-m", commit_msg])

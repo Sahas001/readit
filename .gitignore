@@ -39,8 +39,5 @@ data/
 .DS_Store
 Thumbs.db
 
-# Documentation
-docs/
-
 # Scratch & generation data
 internal/tui/animation_data.txt
