@@ -52,6 +52,12 @@ INSERT INTO comments (post_id, parent_id, author_id, body)
 VALUES ($1, $2, $3, $4)
 RETURNING *;
 
+-- name: GetCommentByID :one
+SELECT id, post_id, parent_id, author_id, body, score, created_at, updated_at, is_deleted
+FROM comments
+WHERE id = $1;
+
+
 -- name: HasCommentChildren :one
 SELECT EXISTS(
     SELECT 1 FROM comments WHERE parent_id = $1
@@ -90,3 +96,31 @@ DELETE FROM comments
 WHERE comments.post_id = $1
   AND comments.is_deleted = TRUE
   AND comments.id NOT IN (SELECT parent_id FROM active_ancestors);
+
+-- name: ListCommentsByAuthorKeyset :many
+SELECT
+    c.id,
+    c.post_id,
+    c.parent_id,
+    c.author_id,
+    c.body,
+    c.score,
+    c.created_at,
+    c.is_deleted,
+    u.handle AS author_handle,
+    p.title  AS post_title,
+    b.slug   AS board_slug
+FROM comments c
+JOIN users  u ON u.id = c.author_id
+JOIN posts  p ON p.id = c.post_id
+JOIN boards b ON b.id = p.board_id
+WHERE c.author_id = $1
+  AND c.is_deleted = FALSE
+  AND (
+      sqlc.narg(cursor_created_at)::TIMESTAMPTZ IS NULL
+      OR (c.created_at < sqlc.narg(cursor_created_at)::TIMESTAMPTZ)
+      OR (c.created_at = sqlc.narg(cursor_created_at)::TIMESTAMPTZ AND c.id < sqlc.narg(cursor_id)::BIGINT)
+  )
+ORDER BY c.created_at DESC, c.id DESC
+LIMIT $2;
+

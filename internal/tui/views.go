@@ -1070,6 +1070,8 @@ func (m *Model) viewHelp() string {
 
 		right.WriteString(stylePrompt.Render("COMPOSERS & GLOBAL") + "\n")
 		right.WriteString(formatHelpItem("n", "New discussion post", colW) + "\n")
+		right.WriteString(formatHelpItem("i", "Open inbox & replies", colW) + "\n")
+		right.WriteString(formatHelpItem("p / P", "View profile / author", colW) + "\n")
 		right.WriteString(formatHelpItem("ctrl+s", "Publish post / reply", colW) + "\n")
 		right.WriteString(formatHelpItem("h / l", "Select flair in composer", colW) + "\n")
 		right.WriteString(formatHelpItem("?", "Close this cheatsheet", colW) + "\n")
@@ -1090,6 +1092,8 @@ func (m *Model) viewHelp() string {
 		s.WriteString(formatHelpItem("c", "Filter flair", innerWidth) + "\n")
 		s.WriteString(formatHelpItem("r", "Reply to item", innerWidth) + "\n")
 		s.WriteString(formatHelpItem("u / d", "Upvote / downvote", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("i", "Open inbox & replies", innerWidth) + "\n")
+		s.WriteString(formatHelpItem("p / P", "View profile / author", innerWidth) + "\n")
 		s.WriteString(formatHelpItem("n", "New post", innerWidth) + "\n")
 		s.WriteString(formatHelpItem("?", "Close cheatsheet", innerWidth) + "\n")
 		s.WriteString(formatHelpItem("q", "Quit ReadIT", innerWidth))

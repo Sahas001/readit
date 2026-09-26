@@ -74,6 +74,8 @@ Compose new posts and replies using floating modal dialogs with nested input box
 - **Reddit / Lazygit Design System**: Centered application canvas, semantic dark palette, clean hairline borders, and responsive scaling from 80×24 up to 4K terminals.
 - **Vertical Vote Rhythm**: Reddit-style vertical vote block (`▲ score ▼`) with toggleable votes (upvote or downvote twice to return to neutral `0`).
 - **Deep Threaded Comments**: Indented recursive conversation trees with author differentiation, comment selection cursor, and targeted replies.
+- **Reply Notifications & Inbox (`[i] inbox`)**: Real-time unread badges in the header (`@handle [N] ●`), keyset-paginated inbox feed, mark all read (`a`), and deep-link jumps straight to the reply comment in discussion threads.
+- **User Profiles & Karma (`[p] profile` / `[P] author`)**: Denormalized karma tracking (`post_karma`, `comment_karma`) updated atomically on vote deltas, member join date, bio display, and tabbed activity browsing (`[Submissions]` and `[Comments]`).
 - **Hybrid Post & Comment Deletion**: Safe, Reddit/Hacker News style deletion model (`x`). Empty posts and leaf comments are hard-deleted for zero storage waste; items with active discussion trees are soft-deleted with scrubbed payloads and `[deleted]` placeholders to maintain thread continuity without orphaned replies.
 - **Security & DoS Hardened**:
   - ANSI/VT100 escape code sanitization on all user strings to prevent terminal injection.
@@ -88,6 +90,8 @@ Compose new posts and replies using floating modal dialogs with nested input box
 | Context | Key | Action |
 | :--- | :--- | :--- |
 | **Global** | `?` | Show complete keyboard cheatsheet modal |
+| **Global** | `i` | Open notification inbox and reply alerts |
+| **Global** | `p` | Open own user profile & karma overview |
 | **Global** | `q` / `Ctrl+C` | Quit session |
 | **Global** | `Esc` | Back / Cancel modal / Pop view |
 | **Navigation** | `j` / `↓` | Move cursor down |
@@ -109,8 +113,13 @@ Compose new posts and replies using floating modal dialogs with nested input box
 | **Voting** | `u` | Upvote post or comment (press again to reset to 0) |
 | **Voting** | `d` | Downvote post or comment (press again to reset to 0) |
 | **Discussion** | `s` | Cycle comment sort order (`top` → `new` → `old`) |
+| **Discussion** | `P` | Open highlighted comment author's profile |
 | **Discussion** | `r` | Reply to currently highlighted comment |
 | **Discussion** | `R` | Reply directly to root post |
+| **Inbox** | `Enter` | Jump to discussion thread and focus comment |
+| **Inbox** | `a` | Mark all notifications as read |
+| **Profile** | `Tab` / `h` / `l` | Switch between Submissions and Comments tabs |
+| **Profile** | `Enter` | View selected submission or comment discussion |
 | **Forms / Modals** | `Enter` / `Tab` | Advance to next field |
 | **Forms / Modals** | `Shift+Tab` | Return to previous field |
 | **Forms / Modals** | `h` / `l` or `←` / `→` / `Space` | Cycle category / flair selector |

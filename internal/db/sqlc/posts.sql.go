@@ -183,6 +183,94 @@ func (q *Queries) IncrementPostCommentCount(ctx context.Context, id int64) error
 	return err
 }
 
+const listPostsByAuthorKeyset = `-- name: ListPostsByAuthorKeyset :many
+SELECT
+    p.id,
+    p.board_id,
+    p.author_id,
+    p.title,
+    p.url,
+    p.score,
+    p.comment_count,
+    p.created_at,
+    p.is_deleted,
+    p.category,
+    u.handle AS author_handle,
+    b.slug   AS board_slug
+FROM posts p
+JOIN users  u ON u.id = p.author_id
+JOIN boards b ON b.id = p.board_id
+WHERE p.author_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND (
+      $3::TIMESTAMPTZ IS NULL
+      OR (p.created_at < $3::TIMESTAMPTZ)
+      OR (p.created_at = $3::TIMESTAMPTZ AND p.id < $4::BIGINT)
+  )
+ORDER BY p.created_at DESC, p.id DESC
+LIMIT $2
+`
+
+type ListPostsByAuthorKeysetParams struct {
+	AuthorID        int64              `json:"author_id"`
+	Limit           int32              `json:"limit"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.Int8        `json:"cursor_id"`
+}
+
+type ListPostsByAuthorKeysetRow struct {
+	ID           int64              `json:"id"`
+	BoardID      int64              `json:"board_id"`
+	AuthorID     int64              `json:"author_id"`
+	Title        string             `json:"title"`
+	Url          string             `json:"url"`
+	Score        int32              `json:"score"`
+	CommentCount int32              `json:"comment_count"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	IsDeleted    bool               `json:"is_deleted"`
+	Category     string             `json:"category"`
+	AuthorHandle string             `json:"author_handle"`
+	BoardSlug    string             `json:"board_slug"`
+}
+
+func (q *Queries) ListPostsByAuthorKeyset(ctx context.Context, arg ListPostsByAuthorKeysetParams) ([]ListPostsByAuthorKeysetRow, error) {
+	rows, err := q.db.Query(ctx, listPostsByAuthorKeyset,
+		arg.AuthorID,
+		arg.Limit,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPostsByAuthorKeysetRow{}
+	for rows.Next() {
+		var i ListPostsByAuthorKeysetRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BoardID,
+			&i.AuthorID,
+			&i.Title,
+			&i.Url,
+			&i.Score,
+			&i.CommentCount,
+			&i.CreatedAt,
+			&i.IsDeleted,
+			&i.Category,
+			&i.AuthorHandle,
+			&i.BoardSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPostsByBoardHot = `-- name: ListPostsByBoardHot :many
 SELECT
     p.id,

@@ -34,6 +34,8 @@ const (
 	viewNewPost
 	viewNewComment
 	viewDeleteConfirm
+	viewInbox
+	viewProfile
 	viewHelp
 	viewError
 )
@@ -130,6 +132,21 @@ type Model struct {
 
 	// Deletion confirmation.
 	pendingDelete *deleteTarget
+
+	// Notifications.
+	unreadNotificationCount int
+	notifications           []db.ListNotificationsKeysetRow
+	notificationCursor      int
+	inboxReturnView         viewState
+
+	// User Profile.
+	profileUser       *db.User
+	profileTab        int // 0: Submissions, 1: Comments
+	profilePosts      []db.ListPostsByAuthorKeysetRow
+	profileComments   []db.ListCommentsByAuthorKeysetRow
+	profilePostCursor int
+	profileCommCursor int
+	profileReturnView viewState
 }
 
 // --- Messages ----------------------------------------------------------
@@ -138,6 +155,31 @@ type Model struct {
 type userLoadedMsg struct {
 	user  *db.User
 	isNew bool
+}
+
+// unreadNotificationCountMsg carries the count of unread notifications.
+type unreadNotificationCountMsg struct {
+	count int
+}
+
+// notificationsLoadedMsg carries the list of notifications for the inbox.
+type notificationsLoadedMsg struct {
+	notifications []db.ListNotificationsKeysetRow
+}
+
+// notificationMarkedReadMsg signals a single notification was marked read.
+type notificationMarkedReadMsg struct {
+	notificationID int64
+}
+
+// allNotificationsMarkedReadMsg signals all notifications were marked read.
+type allNotificationsMarkedReadMsg struct{}
+
+// userProfileLoadedMsg carries profile data and activity lists.
+type userProfileLoadedMsg struct {
+	user     *db.User
+	posts    []db.ListPostsByAuthorKeysetRow
+	comments []db.ListCommentsByAuthorKeysetRow
 }
 
 // boardsLoadedMsg carries the list of boards from the database.
@@ -171,8 +213,9 @@ type postsLoadedMsg struct {
 
 // postDetailLoadedMsg carries the post details and its threaded comments.
 type postDetailLoadedMsg struct {
-	post     *db.GetPostByIDRow
-	comments []db.GetCommentThreadByPostRow
+	post            *db.GetPostByIDRow
+	comments        []db.GetCommentThreadByPostRow
+	targetCommentID *int64
 }
 
 // postVotedMsg signals that a vote has been counted and score recalculated.
@@ -368,7 +411,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.comments = msg.comments
 		m.currentView = viewPostDetail
 
-		if samePost {
+		if msg.targetCommentID != nil {
+			foundIdx := -1
+			for i, c := range m.comments {
+				if c.ID == *msg.targetCommentID {
+					foundIdx = i
+					break
+				}
+			}
+			if foundIdx != -1 {
+				m.commentCursor = foundIdx
+			} else {
+				m.commentCursor = -1
+				m.flashMsg = "• Comment is unavailable or deleted"
+			}
+		} else if samePost {
 			m.commentCursor = prevCursor
 			if m.commentCursor >= len(m.comments) {
 				m.commentCursor = len(m.comments) - 1
@@ -380,11 +437,44 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportSize()
 		m.viewport.SetContent(m.renderPostDetailContent())
 
-		if samePost {
+		if samePost && msg.targetCommentID == nil {
 			m.viewport.SetYOffset(prevYOffset)
 		} else {
 			m.viewport.GotoTop()
 		}
+		return m, nil
+	case unreadNotificationCountMsg:
+		m.unreadNotificationCount = msg.count
+		return m, nil
+	case notificationsLoadedMsg:
+		m.notifications = msg.notifications
+		m.currentView = viewInbox
+		if m.notificationCursor >= len(m.notifications) {
+			m.notificationCursor = 0
+		}
+		return m, nil
+	case notificationMarkedReadMsg:
+		for i, n := range m.notifications {
+			if n.ID == msg.notificationID {
+				m.notifications[i].IsRead = true
+				break
+			}
+		}
+		if m.unreadNotificationCount > 0 {
+			m.unreadNotificationCount--
+		}
+		return m, nil
+	case allNotificationsMarkedReadMsg:
+		for i := range m.notifications {
+			m.notifications[i].IsRead = true
+		}
+		m.unreadNotificationCount = 0
+		return m, nil
+	case userProfileLoadedMsg:
+		m.profileUser = msg.user
+		m.profilePosts = msg.posts
+		m.profileComments = msg.comments
+		m.currentView = viewProfile
 		return m, nil
 	case postVotedMsg:
 		if msg.direction > 0 {
@@ -417,12 +507,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Return to post list and reload posts
 		m.flashMsg = "✓ Post published!"
 		m.currentView = viewPostList
-		return m, m.loadPostsCmd(msg.post.BoardID)
+		return m, tea.Batch(m.loadPostsCmd(msg.post.BoardID), m.checkUnreadNotificationsCmd())
 	case commentCreatedMsg:
 		// Return to post detail and reload discussion
 		m.flashMsg = "✓ Reply posted!"
 		m.currentView = viewPostDetail
-		return m, m.loadPostDetailCmd(msg.comment.PostID)
+		return m, tea.Batch(m.loadPostDetailCmd(msg.comment.PostID), m.checkUnreadNotificationsCmd())
 	case postDeletedMsg:
 		// Return to post list and reload posts
 		m.currentView = viewPostList
@@ -486,6 +576,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateNewComment(msg)
 	case viewDeleteConfirm:
 		return m.updateDeleteConfirm(msg)
+	case viewInbox:
+		return m.updateInbox(msg)
+	case viewProfile:
+		return m.updateProfile(msg)
 	case viewHelp:
 		return m.updateHelp(msg)
 	}
@@ -512,6 +606,10 @@ func (m *Model) View() string {
 		return m.viewNewComment()
 	case viewDeleteConfirm:
 		return m.viewDeleteConfirm()
+	case viewInbox:
+		return m.viewInbox()
+	case viewProfile:
+		return m.viewProfile()
 	case viewHelp:
 		return m.viewHelp()
 	case viewError:
@@ -568,7 +666,7 @@ func (m *Model) handleUserLoaded(msg userLoadedMsg) (*Model, tea.Cmd) {
 	}
 	m.user = msg.user
 	m.currentView = viewBoardList
-	return m, m.loadBoardsCmd()
+	return m, tea.Batch(m.loadBoardsCmd(), m.checkUnreadNotificationsCmd())
 }
 
 // --- Onboarding --------------------------------------------------------
@@ -645,6 +743,13 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 		case msg.String() == "?":
 			m.helpReturnView = viewBoardList
 			m.currentView = viewHelp
+			return m, nil
+		case msg.String() == "i":
+			return m, m.openInboxCmd(viewBoardList)
+		case msg.String() == "p":
+			if m.user != nil {
+				return m, m.openProfileCmd(m.user.Handle, viewBoardList)
+			}
 			return m, nil
 		case msg.String() == "q":
 			return m, tea.Quit
@@ -902,6 +1007,13 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 			m.helpReturnView = viewPostList
 			m.currentView = viewHelp
 			return m, nil
+		case msg.String() == "i":
+			return m, m.openInboxCmd(viewPostList)
+		case msg.String() == "p":
+			if m.user != nil {
+				return m, m.openProfileCmd(m.user.Handle, viewPostList)
+			}
+			return m, nil
 		case msg.String() == "/":
 			m.searchFocused = true
 			m.searchInput.Focus()
@@ -1095,6 +1207,10 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 // --- Post detail -------------------------------------------------------
 
 func (m *Model) loadPostDetailCmd(postID int64) tea.Cmd {
+	return m.loadPostDetailAndFocusCommentCmd(postID, nil)
+}
+
+func (m *Model) loadPostDetailAndFocusCommentCmd(postID int64, targetCommentID *int64) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
@@ -1141,7 +1257,7 @@ func (m *Model) loadPostDetailCmd(postID int64) tea.Cmd {
 		commSort := m.commentSortMode
 		sortedComments := sortCommentTree(comments, commSort)
 
-		return postDetailLoadedMsg{post: &post, comments: sortedComments}
+		return postDetailLoadedMsg{post: &post, comments: sortedComments, targetCommentID: targetCommentID}
 	}
 }
 
@@ -1212,6 +1328,25 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 		case "?":
 			m.helpReturnView = viewPostDetail
 			m.currentView = viewHelp
+			return m, nil
+		case "i":
+			return m, m.openInboxCmd(viewPostDetail)
+		case "p":
+			if m.user != nil {
+				return m, m.openProfileCmd(m.user.Handle, viewPostDetail)
+			}
+			return m, nil
+		case "P":
+			var authorHandle string
+			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
+				authorHandle = m.comments[m.commentCursor].AuthorHandle
+			} else if m.currentPost != nil {
+				authorHandle = m.currentPost.AuthorHandle
+			}
+			if authorHandle != "" && authorHandle != "[deleted]" {
+				return m, m.openProfileCmd(authorHandle, viewPostDetail)
+			}
+			m.flashMsg = "• Author profile is unavailable"
 			return m, nil
 		case "esc":
 			m.currentView = viewPostList
@@ -1418,10 +1553,19 @@ func (m *Model) castPostVoteCmd(postID int64, direction int16) tea.Cmd {
 
 		var newDirection int16
 		err := m.execTx(ctx, func(q *db.Queries) error {
+			post, err := q.GetPostByID(ctx, postID)
+			if err != nil {
+				return fmt.Errorf("fetching post for vote: %w", err)
+			}
+
 			existing, err := q.GetPostVoteByUser(ctx, db.GetPostVoteByUserParams{
 				UserID: m.user.ID,
 				PostID: postID,
 			})
+			var oldDir int16
+			if err == nil {
+				oldDir = existing.Direction
+			}
 
 			if err == nil && existing.Direction == direction {
 				// User pressed the same direction again -> toggle off (delete vote)
@@ -1448,6 +1592,17 @@ func (m *Model) castPostVoteCmd(postID int64, direction int16) tea.Cmd {
 			if err := q.RecalculatePostScore(ctx, postID); err != nil {
 				return fmt.Errorf("recalculating score: %w", err)
 			}
+
+			// Adjust post author's karma atomically
+			delta := int32(newDirection - oldDir)
+			if delta != 0 {
+				if err := q.AdjustUserPostKarma(ctx, db.AdjustUserPostKarmaParams{
+					ID:        post.AuthorID,
+					PostKarma: delta,
+				}); err != nil {
+					return fmt.Errorf("adjusting post karma: %w", err)
+				}
+			}
 			return nil
 		})
 		if err != nil {
@@ -1468,10 +1623,19 @@ func (m *Model) castCommentVoteCmd(commentID int64, direction int16) tea.Cmd {
 
 		var newDirection int16
 		err := m.execTx(ctx, func(q *db.Queries) error {
+			comment, err := q.GetCommentByID(ctx, commentID)
+			if err != nil {
+				return fmt.Errorf("fetching comment for vote: %w", err)
+			}
+
 			existing, err := q.GetCommentVoteByUser(ctx, db.GetCommentVoteByUserParams{
 				UserID:    m.user.ID,
 				CommentID: commentID,
 			})
+			var oldDir int16
+			if err == nil {
+				oldDir = existing.Direction
+			}
 
 			if err == nil && existing.Direction == direction {
 				// User pressed the same direction again -> toggle off (delete vote)
@@ -1496,6 +1660,16 @@ func (m *Model) castCommentVoteCmd(commentID int64, direction int16) tea.Cmd {
 
 			if err := q.RecalculateCommentScore(ctx, commentID); err != nil {
 				return fmt.Errorf("recalculating comment score: %w", err)
+			}
+
+			delta := int32(newDirection - oldDir)
+			if delta != 0 {
+				if err := q.AdjustUserCommentKarma(ctx, db.AdjustUserCommentKarmaParams{
+					ID:           comment.AuthorID,
+					CommentKarma: delta,
+				}); err != nil {
+					return fmt.Errorf("adjusting comment karma: %w", err)
+				}
 			}
 			return nil
 		})
@@ -1716,6 +1890,12 @@ func (m *Model) submitCommentCmd(body string) tea.Cmd {
 			return errMsg{err: err}
 		}
 
+		// Cooldown check (prevent reply flooding / notification spam)
+		if m.user.LastCommentAt.Valid && time.Since(m.user.LastCommentAt.Time) < 3*time.Second {
+			remaining := 3*time.Second - time.Since(m.user.LastCommentAt.Time)
+			return errMsg{err: fmt.Errorf("please wait %s before commenting again", remaining.Round(time.Second))}
+		}
+
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
@@ -1740,12 +1920,46 @@ func (m *Model) submitCommentCmd(body string) tea.Cmd {
 			if err := q.IncrementPostCommentCount(ctx, m.currentPost.ID); err != nil {
 				return fmt.Errorf("incrementing comment count: %w", err)
 			}
+
+			if err := q.UpdateUserLastCommentAt(ctx, m.user.ID); err != nil {
+				return fmt.Errorf("updating user last comment time: %w", err)
+			}
+
+			// Determine recipient for notification
+			var recipientID int64
+			var notifType string
+			if m.replyParentID != nil {
+				parentComm, err := q.GetCommentByID(ctx, *m.replyParentID)
+				if err != nil {
+					return fmt.Errorf("fetching parent comment for notification: %w", err)
+				}
+				recipientID = parentComm.AuthorID
+				notifType = "reply_comment"
+			} else {
+				recipientID = m.currentPost.AuthorID
+				notifType = "reply_post"
+			}
+
+			// Do not notify self
+			if recipientID != m.user.ID {
+				if err := q.CreateNotification(ctx, db.CreateNotificationParams{
+					UserID:    recipientID,
+					ActorID:   m.user.ID,
+					PostID:    m.currentPost.ID,
+					CommentID: pgtype.Int8{Int64: comment.ID, Valid: true},
+					Type:      notifType,
+				}); err != nil {
+					return fmt.Errorf("creating reply notification: %w", err)
+				}
+			}
+
 			return nil
 		})
 		if err != nil {
 			return errMsg{err: err}
 		}
 
+		m.user.LastCommentAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
 		return commentCreatedMsg{comment: comment}
 	}
 }
@@ -1867,6 +2081,268 @@ func (m *Model) updateHelp(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// --- Inbox -------------------------------------------------------------
+
+func (m *Model) updateInbox(msg tea.Msg) (*Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "?":
+			m.helpReturnView = viewInbox
+			m.currentView = viewHelp
+			return m, nil
+		case "esc", "q":
+			targetView := m.inboxReturnView
+			if targetView == viewLoading || targetView == viewInbox {
+				targetView = viewBoardList
+			}
+			m.currentView = targetView
+			if targetView == viewBoardList {
+				return m, tea.Batch(m.animTickCmd(), m.checkUnreadNotificationsCmd())
+			}
+			return m, m.checkUnreadNotificationsCmd()
+		case "j", "down":
+			if len(m.notifications) > 0 && m.notificationCursor < len(m.notifications)-1 {
+				m.notificationCursor++
+			}
+			return m, nil
+		case "k", "up":
+			if m.notificationCursor > 0 {
+				m.notificationCursor--
+			}
+			return m, nil
+		case "g", "home":
+			m.notificationCursor = 0
+			return m, nil
+		case "G", "end":
+			if len(m.notifications) > 0 {
+				m.notificationCursor = len(m.notifications) - 1
+			}
+			return m, nil
+		case "a":
+			if len(m.notifications) > 0 {
+				m.flashMsg = "✓ All notifications marked as read"
+				return m, m.markAllNotificationsReadCmd()
+			}
+			return m, nil
+		case "enter":
+			if len(m.notifications) > 0 && m.notificationCursor < len(m.notifications) {
+				n := m.notifications[m.notificationCursor]
+				var targetCommID *int64
+				if n.CommentID.Valid {
+					id := n.CommentID.Int64
+					targetCommID = &id
+				}
+				cmds := []tea.Cmd{
+					m.loadPostDetailAndFocusCommentCmd(n.PostID, targetCommID),
+				}
+				if !n.IsRead {
+					cmds = append(cmds, m.markNotificationReadCmd(n.ID))
+				}
+				return m, tea.Batch(cmds...)
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// --- Profile -----------------------------------------------------------
+
+func (m *Model) updateProfile(msg tea.Msg) (*Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "?":
+			m.helpReturnView = viewProfile
+			m.currentView = viewHelp
+			return m, nil
+		case "esc", "q":
+			targetView := m.profileReturnView
+			if targetView == viewLoading || targetView == viewProfile {
+				targetView = viewBoardList
+			}
+			m.currentView = targetView
+			if targetView == viewBoardList {
+				return m, m.animTickCmd()
+			}
+			return m, nil
+		case "tab", "l", "right":
+			m.profileTab = (m.profileTab + 1) % 2
+			return m, nil
+		case "shift+tab", "h", "left":
+			m.profileTab = (m.profileTab - 1 + 2) % 2
+			return m, nil
+		case "j", "down":
+			if m.profileTab == 0 {
+				if len(m.profilePosts) > 0 && m.profilePostCursor < len(m.profilePosts)-1 {
+					m.profilePostCursor++
+				}
+			} else {
+				if len(m.profileComments) > 0 && m.profileCommCursor < len(m.profileComments)-1 {
+					m.profileCommCursor++
+				}
+			}
+			return m, nil
+		case "k", "up":
+			if m.profileTab == 0 {
+				if m.profilePostCursor > 0 {
+					m.profilePostCursor--
+				}
+			} else {
+				if m.profileCommCursor > 0 {
+					m.profileCommCursor--
+				}
+			}
+			return m, nil
+		case "g", "home":
+			if m.profileTab == 0 {
+				m.profilePostCursor = 0
+			} else {
+				m.profileCommCursor = 0
+			}
+			return m, nil
+		case "G", "end":
+			if m.profileTab == 0 {
+				if len(m.profilePosts) > 0 {
+					m.profilePostCursor = len(m.profilePosts) - 1
+				}
+			} else {
+				if len(m.profileComments) > 0 {
+					m.profileCommCursor = len(m.profileComments) - 1
+				}
+			}
+			return m, nil
+		case "enter":
+			if m.profileTab == 0 {
+				if len(m.profilePosts) > 0 && m.profilePostCursor < len(m.profilePosts) {
+					p := m.profilePosts[m.profilePostCursor]
+					return m, m.loadPostDetailCmd(p.ID)
+				}
+			} else {
+				if len(m.profileComments) > 0 && m.profileCommCursor < len(m.profileComments) {
+					c := m.profileComments[m.profileCommCursor]
+					commID := c.ID
+					return m, m.loadPostDetailAndFocusCommentCmd(c.PostID, &commID)
+				}
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// --- Notifications & Inbox Commands ------------------------------------
+
+func (m *Model) checkUnreadNotificationsCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.user == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
+		defer cancel()
+
+		count, err := m.queries.GetUnreadNotificationCount(ctx, m.user.ID)
+		if err != nil {
+			return nil
+		}
+		return unreadNotificationCountMsg{count: int(count)}
+	}
+}
+
+func (m *Model) openInboxCmd(returnView viewState) tea.Cmd {
+	m.inboxReturnView = returnView
+	m.notificationCursor = 0
+	return func() tea.Msg {
+		if m.user == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
+		defer cancel()
+
+		notifs, err := m.queries.ListNotificationsKeyset(ctx, db.ListNotificationsKeysetParams{
+			UserID: m.user.ID,
+			Limit:  50,
+		})
+		if err != nil {
+			return errMsg{err: fmt.Errorf("loading inbox: %w", err)}
+		}
+		return notificationsLoadedMsg{notifications: notifs}
+	}
+}
+
+func (m *Model) markNotificationReadCmd(notificationID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.user == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
+		defer cancel()
+
+		_ = m.queries.MarkNotificationAsReadByID(ctx, db.MarkNotificationAsReadByIDParams{
+			ID:     notificationID,
+			UserID: m.user.ID,
+		})
+		return notificationMarkedReadMsg{notificationID: notificationID}
+	}
+}
+
+func (m *Model) markAllNotificationsReadCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.user == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
+		defer cancel()
+
+		_ = m.queries.MarkNotificationsRead(ctx, m.user.ID)
+		return allNotificationsMarkedReadMsg{}
+	}
+}
+
+// --- User Profile Commands ---------------------------------------------
+
+func (m *Model) openProfileCmd(handle string, returnView viewState) tea.Cmd {
+	m.profileReturnView = returnView
+	m.profileTab = 0
+	m.profilePostCursor = 0
+	m.profileCommCursor = 0
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
+		defer cancel()
+
+		user, err := m.queries.GetUserProfileByHandle(ctx, handle)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return userProfileLoadedMsg{user: nil, posts: nil, comments: nil}
+			}
+			return errMsg{err: fmt.Errorf("loading user profile: %w", err)}
+		}
+
+		posts, err := m.queries.ListPostsByAuthorKeyset(ctx, db.ListPostsByAuthorKeysetParams{
+			AuthorID: user.ID,
+			Limit:    30,
+		})
+		if err != nil {
+			return errMsg{err: fmt.Errorf("loading user posts: %w", err)}
+		}
+
+		comments, err := m.queries.ListCommentsByAuthorKeyset(ctx, db.ListCommentsByAuthorKeysetParams{
+			AuthorID: user.ID,
+			Limit:    30,
+		})
+		if err != nil {
+			return errMsg{err: fmt.Errorf("loading user comments: %w", err)}
+		}
+
+		return userProfileLoadedMsg{
+			user:     &user,
+			posts:    posts,
+			comments: comments,
+		}
+	}
 }
 
 

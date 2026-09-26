@@ -11,21 +11,27 @@ import (
 )
 
 type Querier interface {
+	AdjustUserCommentKarma(ctx context.Context, arg AdjustUserCommentKarmaParams) error
+	AdjustUserPostKarma(ctx context.Context, arg AdjustUserPostKarmaParams) error
 	CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error)
+	CreateNotification(ctx context.Context, arg CreateNotificationParams) error
 	CreatePost(ctx context.Context, arg CreatePostParams) (Post, error)
 	DecrementPostCommentCount(ctx context.Context, id int64) error
 	DeleteCommentVote(ctx context.Context, arg DeleteCommentVoteParams) error
 	DeletePostVote(ctx context.Context, arg DeletePostVoteParams) error
 	GetBoardByID(ctx context.Context, id int64) (Board, error)
 	GetBoardBySlug(ctx context.Context, slug string) (Board, error)
+	GetCommentByID(ctx context.Context, id int64) (GetCommentByIDRow, error)
 	// Recursive CTE that returns the comment tree for a post up to depth 15,
 	// ordered depth-first by (path, created_at).
 	GetCommentThreadByPost(ctx context.Context, arg GetCommentThreadByPostParams) ([]GetCommentThreadByPostRow, error)
 	GetCommentVoteByUser(ctx context.Context, arg GetCommentVoteByUserParams) (CommentVote, error)
 	GetPostByID(ctx context.Context, id int64) (GetPostByIDRow, error)
 	GetPostVoteByUser(ctx context.Context, arg GetPostVoteByUserParams) (PostVote, error)
+	GetUnreadNotificationCount(ctx context.Context, userID int64) (int64, error)
 	GetUserByID(ctx context.Context, id int64) (User, error)
 	GetUserByPubkey(ctx context.Context, pubkeySha256 string) (User, error)
+	GetUserProfileByHandle(ctx context.Context, handle string) (User, error)
 	HardDeleteComment(ctx context.Context, arg HardDeleteCommentParams) error
 	HardDeleteCommentIfNoChildren(ctx context.Context, arg HardDeleteCommentIfNoChildrenParams) (int64, error)
 	HardDeletePost(ctx context.Context, arg HardDeletePostParams) error
@@ -34,9 +40,14 @@ type Querier interface {
 	HasPostComments(ctx context.Context, postID int64) (bool, error)
 	IncrementPostCommentCount(ctx context.Context, id int64) error
 	ListBoards(ctx context.Context) ([]Board, error)
+	ListCommentsByAuthorKeyset(ctx context.Context, arg ListCommentsByAuthorKeysetParams) ([]ListCommentsByAuthorKeysetRow, error)
+	ListNotificationsKeyset(ctx context.Context, arg ListNotificationsKeysetParams) ([]ListNotificationsKeysetRow, error)
+	ListPostsByAuthorKeyset(ctx context.Context, arg ListPostsByAuthorKeysetParams) ([]ListPostsByAuthorKeysetRow, error)
 	ListPostsByBoardHot(ctx context.Context, arg ListPostsByBoardHotParams) ([]ListPostsByBoardHotRow, error)
 	ListPostsByBoardNew(ctx context.Context, arg ListPostsByBoardNewParams) ([]ListPostsByBoardNewRow, error)
 	ListPostsByBoardTop(ctx context.Context, arg ListPostsByBoardTopParams) ([]ListPostsByBoardTopRow, error)
+	MarkNotificationAsReadByID(ctx context.Context, arg MarkNotificationAsReadByIDParams) error
+	MarkNotificationsRead(ctx context.Context, userID int64) error
 	PruneAllEmptyDeletedPosts(ctx context.Context) error
 	PruneDeletedPostIfEmpty(ctx context.Context, id int64) error
 	PruneTombstoneComments(ctx context.Context, postID int64) error
@@ -47,6 +58,7 @@ type Querier interface {
 	SoftDeletePost(ctx context.Context, arg SoftDeletePostParams) error
 	UpdateUserBio(ctx context.Context, arg UpdateUserBioParams) (User, error)
 	UpdateUserHandle(ctx context.Context, arg UpdateUserHandleParams) (User, error)
+	UpdateUserLastCommentAt(ctx context.Context, id int64) error
 	UpsertCommentVote(ctx context.Context, arg UpsertCommentVoteParams) error
 	UpsertPostVote(ctx context.Context, arg UpsertPostVoteParams) error
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)

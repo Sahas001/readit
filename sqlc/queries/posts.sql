@@ -170,3 +170,31 @@ WHERE is_deleted = TRUE
       )
   );
 
+-- name: ListPostsByAuthorKeyset :many
+SELECT
+    p.id,
+    p.board_id,
+    p.author_id,
+    p.title,
+    p.url,
+    p.score,
+    p.comment_count,
+    p.created_at,
+    p.is_deleted,
+    p.category,
+    u.handle AS author_handle,
+    b.slug   AS board_slug
+FROM posts p
+JOIN users  u ON u.id = p.author_id
+JOIN boards b ON b.id = p.board_id
+WHERE p.author_id = $1
+  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND (
+      sqlc.narg(cursor_created_at)::TIMESTAMPTZ IS NULL
+      OR (p.created_at < sqlc.narg(cursor_created_at)::TIMESTAMPTZ)
+      OR (p.created_at = sqlc.narg(cursor_created_at)::TIMESTAMPTZ AND p.id < sqlc.narg(cursor_id)::BIGINT)
+  )
+ORDER BY p.created_at DESC, p.id DESC
+LIMIT $2;
+
+

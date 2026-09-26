@@ -47,6 +47,41 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 	return i, err
 }
 
+const getCommentByID = `-- name: GetCommentByID :one
+SELECT id, post_id, parent_id, author_id, body, score, created_at, updated_at, is_deleted
+FROM comments
+WHERE id = $1
+`
+
+type GetCommentByIDRow struct {
+	ID        int64              `json:"id"`
+	PostID    int64              `json:"post_id"`
+	ParentID  pgtype.Int8        `json:"parent_id"`
+	AuthorID  int64              `json:"author_id"`
+	Body      string             `json:"body"`
+	Score     int32              `json:"score"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	IsDeleted bool               `json:"is_deleted"`
+}
+
+func (q *Queries) GetCommentByID(ctx context.Context, id int64) (GetCommentByIDRow, error) {
+	row := q.db.QueryRow(ctx, getCommentByID, id)
+	var i GetCommentByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.PostID,
+		&i.ParentID,
+		&i.AuthorID,
+		&i.Body,
+		&i.Score,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsDeleted,
+	)
+	return i, err
+}
+
 const getCommentThreadByPost = `-- name: GetCommentThreadByPost :many
 WITH RECURSIVE thread AS (
     -- Anchor: top-level comments (parent_id IS NULL)
@@ -197,6 +232,92 @@ func (q *Queries) HasCommentChildren(ctx context.Context, parentID pgtype.Int8) 
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const listCommentsByAuthorKeyset = `-- name: ListCommentsByAuthorKeyset :many
+SELECT
+    c.id,
+    c.post_id,
+    c.parent_id,
+    c.author_id,
+    c.body,
+    c.score,
+    c.created_at,
+    c.is_deleted,
+    u.handle AS author_handle,
+    p.title  AS post_title,
+    b.slug   AS board_slug
+FROM comments c
+JOIN users  u ON u.id = c.author_id
+JOIN posts  p ON p.id = c.post_id
+JOIN boards b ON b.id = p.board_id
+WHERE c.author_id = $1
+  AND c.is_deleted = FALSE
+  AND (
+      $3::TIMESTAMPTZ IS NULL
+      OR (c.created_at < $3::TIMESTAMPTZ)
+      OR (c.created_at = $3::TIMESTAMPTZ AND c.id < $4::BIGINT)
+  )
+ORDER BY c.created_at DESC, c.id DESC
+LIMIT $2
+`
+
+type ListCommentsByAuthorKeysetParams struct {
+	AuthorID        int64              `json:"author_id"`
+	Limit           int32              `json:"limit"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.Int8        `json:"cursor_id"`
+}
+
+type ListCommentsByAuthorKeysetRow struct {
+	ID           int64              `json:"id"`
+	PostID       int64              `json:"post_id"`
+	ParentID     pgtype.Int8        `json:"parent_id"`
+	AuthorID     int64              `json:"author_id"`
+	Body         string             `json:"body"`
+	Score        int32              `json:"score"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	IsDeleted    bool               `json:"is_deleted"`
+	AuthorHandle string             `json:"author_handle"`
+	PostTitle    string             `json:"post_title"`
+	BoardSlug    string             `json:"board_slug"`
+}
+
+func (q *Queries) ListCommentsByAuthorKeyset(ctx context.Context, arg ListCommentsByAuthorKeysetParams) ([]ListCommentsByAuthorKeysetRow, error) {
+	rows, err := q.db.Query(ctx, listCommentsByAuthorKeyset,
+		arg.AuthorID,
+		arg.Limit,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCommentsByAuthorKeysetRow{}
+	for rows.Next() {
+		var i ListCommentsByAuthorKeysetRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PostID,
+			&i.ParentID,
+			&i.AuthorID,
+			&i.Body,
+			&i.Score,
+			&i.CreatedAt,
+			&i.IsDeleted,
+			&i.AuthorHandle,
+			&i.PostTitle,
+			&i.BoardSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const pruneTombstoneComments = `-- name: PruneTombstoneComments :exec

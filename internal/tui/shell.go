@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -110,7 +111,7 @@ func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
 
 	left := logo + "  " + titlePart
 
-	// Right side: user handle + online indicator
+	// Right side: user handle + unread badge + online indicator
 	var userHandle string
 	if m.user != nil {
 		userHandle = sanitize.SingleLine(m.user.Handle)
@@ -118,7 +119,17 @@ func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
 		userHandle = "guest"
 	}
 	dot := styleStatusDot.Render("●")
-	right := styleMeta.Render("@"+userHandle) + " " + dot
+
+	var badge string
+	if m.unreadNotificationCount > 0 {
+		badge = " " + lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(currentTheme.Primary).
+			Bold(true).
+			Render(fmt.Sprintf("[%d]", m.unreadNotificationCount))
+	}
+
+	right := styleMeta.Render("@"+userHandle) + badge + " " + dot
 
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)

@@ -36,6 +36,17 @@ type CommentVote struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Notification struct {
+	ID        int64              `json:"id"`
+	UserID    int64              `json:"user_id"`
+	ActorID   int64              `json:"actor_id"`
+	PostID    int64              `json:"post_id"`
+	CommentID pgtype.Int8        `json:"comment_id"`
+	Type      string             `json:"type"`
+	IsRead    bool               `json:"is_read"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Post struct {
 	ID           int64              `json:"id"`
 	BoardID      int64              `json:"board_id"`
@@ -61,10 +72,13 @@ type PostVote struct {
 }
 
 type User struct {
-	ID           int64              `json:"id"`
-	PubkeySha256 string             `json:"pubkey_sha256"`
-	Handle       string             `json:"handle"`
-	Bio          string             `json:"bio"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ID            int64              `json:"id"`
+	PubkeySha256  string             `json:"pubkey_sha256"`
+	Handle        string             `json:"handle"`
+	Bio           string             `json:"bio"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	PostKarma     int32              `json:"post_karma"`
+	CommentKarma  int32              `json:"comment_karma"`
+	LastCommentAt pgtype.Timestamptz `json:"last_comment_at"`
 }
