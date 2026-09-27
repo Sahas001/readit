@@ -10,29 +10,31 @@
 |_| \_\___|\__,_|\__,_|___| |_|
 ```
 
-**A modern, Reddit-style terminal forum accessible over SSH.**
+**A simple, Reddit-style discussion forum you access over SSH.**
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![TUI Architecture](https://img.shields.io/badge/TUI-Bubble%20Tea%20%7C%20Lip%20Gloss-FF4500?style=flat)](https://github.com/charmbracelet/bubbletea)
+[![TUI Framework](https://img.shields.io/badge/TUI-Bubble%20Tea%20%26%20Lip%20Gloss-FF4500?style=flat)](https://github.com/charmbracelet/bubbletea)
 [![SSH Server](https://img.shields.io/badge/SSH-Charm%20Wish-00D1B2?style=flat)](https://github.com/charmbracelet/wish)
-[![Database](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20sqlc-336791?style=flat&logo=postgresql)](https://sqlc.dev/)
+[![Database](https://img.shields.io/badge/Database-PostgreSQL-336791?style=flat&logo=postgresql)](https://sqlc.dev/)
 
 </div>
 
 ---
 
-## Overview
+## What is ReadIT?
 
-**ReadIT** brings the community discussion experience of Reddit and Hacker News directly to your terminal. It requires **zero client-side installation**—anyone with an SSH client can connect instantly and participate in discussions, browse community boards, upvote or downvote posts, and reply in threaded conversations.
+**ReadIT** brings Reddit and Hacker News discussions directly to your terminal. 
 
-The interface is built with [Charm's](https://charm.sh) Bubble Tea and Lip Gloss, adopting an intentional, high-density design system inspired by Reddit, Lazygit, and modern developer dashboards.
+There is **nothing to download or install** on your machine. All you need is an SSH client. Connect in seconds, pick a username, and start reading posts, voting, and joining discussions without opening a browser or creating another password.
+
+Built with Go, [Charm's](https://charm.sh) Bubble Tea, Lip Gloss, Glamour, and PostgreSQL.
 
 ---
 
 ## Visual Tour
 
-### Community Boards Directory
-The landing experience features a centered application canvas, hero ASCII typography, real-time board counters, and active board selection:
+### 1. Community Boards & Landing
+Connect over SSH to see active boards, community stats, a centered layout, and an animated ASCII Earth globe:
 
 <div align="center">
   <img src="assets/hero-landing.png" alt="ReadIT Landing Board Directory" width="850">
@@ -40,8 +42,8 @@ The landing experience features a centered application canvas, hero ASCII typogr
 
 ---
 
-### Discussion Feed with Reddit-Style Vote Columns
-Browse posts organized with a 3-line vertical vote indicator (`▲ / score / ▼`), author metadata, relative timestamps, external link badges, and active accent borders:
+### 2. Discussion Feed
+Browse posts with vertical vote counters (`▲ / score / ▼`), colored flair badges (`[general]`, `[showcase]`, etc.), author names, timestamps, and compact/card density options:
 
 <div align="center">
   <img src="assets/post-feed.png" alt="ReadIT Board Post Feed" width="850">
@@ -49,8 +51,8 @@ Browse posts organized with a 3-line vertical vote indicator (`▲ / score / ▼
 
 ---
 
-### Threaded Discussion Tree & Comment Navigation
-Engage with full word-wrapped discussion posts and hierarchical comment trees featuring Unicode branch glyphs (`└─`), `[OP]` author badges, and interactive comment cursors:
+### 3. Threaded Comments & Markdown
+Read full posts rendered in clean terminal Markdown. Follow nested reply trees with `[OP]` author badges, tree branches (`└─`), and comment indicators:
 
 <div align="center">
   <img src="assets/discussion-thread.png" alt="ReadIT Discussion Thread View" width="850">
@@ -58,8 +60,8 @@ Engage with full word-wrapped discussion posts and hierarchical comment trees fe
 
 ---
 
-### In-Terminal Discussion & Reply Composer
-Compose new posts and replies using floating modal dialogs with nested input boxes, real-time character counters, and fluid focus navigation:
+### 4. Post & Reply Composer
+Write posts and replies using in-terminal modal dialogs with real-time character counters, flair selectors, and full keyboard navigation:
 
 <div align="center">
   <img src="assets/modal-composer.png" alt="ReadIT Modal Composer" width="850">
@@ -67,142 +69,162 @@ Compose new posts and replies using floating modal dialogs with nested input box
 
 ---
 
-## Key Features
+### 5. Reply Notifications & Inbox
+See when people reply to your posts or comments with an unread alert in the top bar (`@you [1] ●`). Open the inbox (`i`) to read replies and jump straight to the conversation:
 
-- **Zero Client Setup**: Accessible over standard SSH (`ssh -p 2222 localhost`). No local CLI binaries, runtimes, or dependencies required for users.
-- **SSH Public-Key Identity**: Automatic onboarding on first connect—associates your SSH key with an alphanumeric handle without passwords.
-- **Reddit / Lazygit Design System**: Centered application canvas, semantic dark palette, clean hairline borders, and responsive scaling from 80×24 up to 4K terminals.
-- **Vertical Vote Rhythm**: Reddit-style vertical vote block (`▲ score ▼`) with toggleable votes (upvote or downvote twice to return to neutral `0`).
-- **Deep Threaded Comments**: Indented recursive conversation trees with author differentiation, comment selection cursor, and targeted replies.
-- **Reply Notifications & Inbox (`[i] inbox`)**: Real-time unread badges in the header (`@handle [N] ●`), keyset-paginated inbox feed, mark all read (`a`), and deep-link jumps straight to the reply comment in discussion threads.
-- **User Profiles & Karma (`[p] profile` / `[P] author`)**: Denormalized karma tracking (`post_karma`, `comment_karma`) updated atomically on vote deltas, member join date, bio display, and tabbed activity browsing (`[Submissions]` and `[Comments]`).
-- **Hybrid Post & Comment Deletion**: Safe, Reddit/Hacker News style deletion model (`x`). Empty posts and leaf comments are hard-deleted for zero storage waste; items with active discussion trees are soft-deleted with scrubbed payloads and `[deleted]` placeholders to maintain thread continuity without orphaned replies.
-- **Security & DoS Hardened**:
-  - ANSI/VT100 escape code sanitization on all user strings to prevent terminal injection.
-  - Recursion depth ceilings (`depth < 15`) on comment tree queries to prevent stack/memory exhaustion.
-  - PostgreSQL connection budgeting with strict `statement_timeout` and idle transaction bounds.
-  - Wish SSH session timeouts to prevent PTY file descriptor exhaustion.
+<div align="center">
+  <img src="assets/inbox.png" alt="ReadIT Notification Inbox" width="850">
+</div>
 
 ---
 
-## Keyboard Navigation
+### 6. User Profiles & Karma
+View your profile (`p`) or inspect any author (`P`). Track your total post and comment karma, member join date, and browse past submissions and comments using tabs:
 
-| Context | Key | Action |
+<div align="center">
+  <img src="assets/profile.png" alt="ReadIT User Profile" width="850">
+</div>
+
+---
+
+## Features
+
+- **No Install Needed**: Just connect using standard SSH (`ssh readit.org` or `ssh -p 2222 localhost`). No CLI packages to install.
+- **SSH Key Login**: Your SSH public key logs you in automatically. No passwords, no verification emails, and no passwords to leak.
+- **Clean Terminal Interface**: Centered design that scales cleanly from small 80×24 terminals up to large widescreen displays.
+- **Reddit-Style Voting**: Upvote (`u`) or downvote (`d`) posts and comments. Press again to undo your vote.
+- **Threaded Comment Trees**: Clear indented conversation trees that show who is replying to whom.
+- **Terminal Markdown**: Posts and comments support code blocks, bold, italics, quotes, and lists using Glamour.
+- **Notifications & Inbox (`i`)**: Get alerted in the header when someone replies to you. Hit Enter to jump right to that comment in the thread.
+- **Profiles & Karma (`p`)**: See your post karma, comment karma, and browse your history with `Tab`.
+- **Feed Tools**: 
+  - Switch between comfortable cards and 1-line compact mode (`z`).
+  - Sort by Hot, New, or Top (`s`).
+  - Filter by colored category flairs (`c`).
+  - Mark discussions as read (`m`) or hide read posts for a fresh feed (`H`).
+- **Safe Deletion (`x`)**: If an author deletes a post that has active comments, replies stay intact while empty discussions clean themselves up automatically.
+- **Built-in Protection**: Input text is filtered to prevent malicious terminal escape codes, an anti-spam cooldown prevents flooding, and query limits keep the server responsive.
+
+---
+
+## Keyboard Shortcuts
+
+| Context | Key | What It Does |
 | :--- | :--- | :--- |
-| **Global** | `?` | Show complete keyboard cheatsheet modal |
-| **Global** | `i` | Open notification inbox and reply alerts |
-| **Global** | `p` | Open own user profile & karma overview |
-| **Global** | `q` / `Ctrl+C` | Quit session |
-| **Global** | `Esc` | Back / Cancel modal / Pop view |
-| **Navigation** | `j` / `↓` | Move cursor down |
-| **Navigation** | `k` / `↑` | Move cursor up |
+| **Everywhere** | `?` | Show keyboard help cheatsheet |
+| **Everywhere** | `i` | Open notification inbox |
+| **Everywhere** | `p` | Open your profile & karma overview |
+| **Everywhere** | `q` / `Ctrl+C` | Quit |
+| **Everywhere** | `Esc` | Go back / Close modal |
+| **Navigation** | `j` / `↓` | Move down |
+| **Navigation** | `k` / `↑` | Move up |
 | **Navigation** | `Ctrl+D` / `Ctrl+U` | Half-page jump down / up |
-| **Navigation** | `g` / `Home` | Jump to top of list or thread |
-| **Navigation** | `G` / `End` | Jump to bottom of list or thread |
-| **Board List** | `Enter` | Enter selected board |
-| **Post Feed** | `Enter` | View discussion thread & comments (marks post as read) |
-| **Post Feed** | `z` | Toggle Dual-Density mode: **Compact** (1-line, 18 posts) vs **Comfortable** (3-line card) |
-| **Post Feed** | `]` / `[` | Next / Previous page (keyset cursor seek $O(\log N)$) |
-| **Post Feed** | `m` | Toggle mark-as-read / unread (dims read items) |
-| **Post Feed** | `H` | Toggle hide-read discussions (session inbox-zero triage) |
-| **Post Feed** | `/` | Search discussions in active board (`Enter` to submit, `Esc` to clear) |
-| **Post Feed** | `s` | Cycle feed sort order (`hot` → `new` → `top`) |
-| **Post Feed** | `c` | Cycle flair filter (`all` → `general` → `discussion` → `question` → `showcase` → `guide` → `news`) |
-| **Post Feed** | `n` | Create new discussion in active board |
-| **Post / Comment** | `x` | Delete post or comment (confirmation modal) |
-| **Voting** | `u` | Upvote post or comment (press again to reset to 0) |
-| **Voting** | `d` | Downvote post or comment (press again to reset to 0) |
-| **Discussion** | `s` | Cycle comment sort order (`top` → `new` → `old`) |
-| **Discussion** | `P` | Open highlighted comment author's profile |
-| **Discussion** | `r` | Reply to currently highlighted comment |
-| **Discussion** | `R` | Reply directly to root post |
-| **Inbox** | `Enter` | Jump to discussion thread and focus comment |
+| **Navigation** | `g` / `Home` | Jump to the very top |
+| **Navigation** | `G` / `End` | Jump to the very bottom |
+| **Boards** | `Enter` | Enter selected board |
+| **Post Feed** | `Enter` | Open discussion thread |
+| **Post Feed** | `z` | Toggle view: **Comfortable card** vs **Compact 1-line** |
+| **Post Feed** | `]` / `[` | Next / Previous page |
+| **Post Feed** | `m` | Mark as read / unread |
+| **Post Feed** | `H` | Hide all read posts |
+| **Post Feed** | `/` | Search posts in the board |
+| **Post Feed** | `s` | Cycle sort order (`hot` → `new` → `top`) |
+| **Post Feed** | `c` | Filter by flair (`all` → `general` → `discussion` → `question` → `showcase` → `guide` → `news`) |
+| **Post Feed** | `n` | Create a new post |
+| **Post / Comment** | `x` | Delete post or comment |
+| **Voting** | `u` | Upvote (press again to reset) |
+| **Voting** | `d` | Downvote (press again to reset) |
+| **Discussion** | `s` | Cycle comment sort (`top` → `new` → `old`) |
+| **Discussion** | `P` | View highlighted author's profile |
+| **Discussion** | `r` | Reply to highlighted comment |
+| **Discussion** | `R` | Reply directly to the main post |
+| **Inbox** | `Enter` | Jump directly to that comment in the thread |
 | **Inbox** | `a` | Mark all notifications as read |
-| **Profile** | `Tab` / `h` / `l` | Switch between Submissions and Comments tabs |
-| **Profile** | `Enter` | View selected submission or comment discussion |
-| **Forms / Modals** | `Enter` / `Tab` | Advance to next field |
-| **Forms / Modals** | `Shift+Tab` | Return to previous field |
-| **Forms / Modals** | `h` / `l` or `←` / `→` / `Space` | Cycle category / flair selector |
-| **Forms / Modals** | `Ctrl+S` | Submit and publish |
+| **Profile** | `Tab` / `h` / `l` | Switch between Submissions and Comments |
+| **Profile** | `Enter` | Open the selected post or comment |
+| **Forms** | `Enter` / `Tab` | Next field |
+| **Forms** | `Shift+Tab` | Previous field |
+| **Forms** | `h` / `l` or `←` / `→` | Change post flair |
+| **Forms** | `Ctrl+S` | Submit and publish |
 
 ---
 
-## Quickstart & Local Development
+## Quickstart & Local Setup
 
-### Prerequisites
+### Requirements
 - [Go](https://go.dev/) 1.24+
 - [Docker](https://www.docker.com/) and Docker Compose (for PostgreSQL)
 - An SSH client (`ssh`)
 
-### 1. Clone the Repository
+### 1. Clone the repository
 ```bash
 git clone https://github.com/Sahas001/readit.git
 cd readit
 ```
 
-### 2. Launch PostgreSQL & Apply Migrations
+### 2. Start PostgreSQL & apply database migrations
 ```bash
-# Start PostgreSQL container
-make docker-up
+# Start PostgreSQL database container
+make up
 
-# Run database schema migrations
+# Run database migrations
 make migrate-up
 ```
 
-### 3. Build & Run the SSH Server
+### 3. Run the server
 ```bash
 make run
 ```
-The server will generate an ED25519 host key in `.ssh/host_key` (if not already present) and start listening on port `2222`.
+The server will create a host key in `.ssh/host_key` (if needed) and listen on port `2222`.
 
 ### 4. Connect to ReadIT
-Open another terminal window and connect:
+In another terminal, connect using SSH:
 ```bash
-ssh -p 2222 localhost
+make ssh-test
+# or: ssh -p 2222 localhost
 ```
-On your first connection, choose your handle (3–20 alphanumeric characters) and begin exploring!
+Pick your username (3–20 characters) on first connect, and you're in!
 
 ---
 
-## Architecture & Technology Stack
+## How It Works
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                       SSH Client                            │
-│                 (OpenSSH / Terminal PTY)                    │
+│           (Your local terminal: OpenSSH / Kitty / iTerm)    │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ SSH Connection (Port 2222)
+                               │ SSH connection on port 2222
 ┌──────────────────────────────▼──────────────────────────────┐
-│                    Charm Wish SSH Server                    │
-│   • Public-Key Authentication  • Session Idle Timeouts      │
-│   • Terminal PTY Window Sizing • Context Cancellation       │
+│                    Wish SSH Server                          │
+│   • Checks your SSH public key (no passwords required)      │
+│   • Manages session timeouts and window sizes               │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ tea.Program (per session)
+                               │ Interactive TUI session
 ┌──────────────────────────────▼──────────────────────────────┐
-│               Bubble Tea & Lip Gloss TUI                    │
-│   • Elm Architecture (Model-Update-View)                    │
-│   • Semantic Theme System & Centered Responsive Shell       │
-│   • Threaded Tree Viewport & Form Controls                  │
-│   • SingleLine & Text ANSI Escape Sanitization              │
+│                 Bubble Tea & Lip Gloss                      │
+│   • Handles keystrokes (j, k, u, d, r, enter)               │
+│   • Renders terminal Markdown with Glamour                  │
+│   • Cleans user text to keep terminals secure               │
 └──────────────────────────────┬──────────────────────────────┘
-                               │ pgxpool Queries
+                               │ Type-safe database queries
 ┌──────────────────────────────▼──────────────────────────────┐
-│              PostgreSQL Persistence (sqlc)                  │
-│   • Bounded Recursive CTEs     • Connection Statement Guard │
-│   • Keyset Pagination          • Atomic Score Recalculation │
+│                    PostgreSQL 16                            │
+│   • Fast cursor-based pagination (no lag on deep pages)     │
+│   • Indented comment trees with depth limits                │
+│   • Notifications and profile karma                         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **TUI Layer**: [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), [Bubbles](https://github.com/charmbracelet/bubbles).
-- **SSH Layer**: [Charm Wish](https://github.com/charmbracelet/wish) with public-key middleware.
-- **Database Layer**: PostgreSQL 16, [pgx/v5](https://github.com/jackc/pgx), [sqlc](https://sqlc.dev/) for type-safe query generation, [Goose](https://github.com/pressly/goose) for schema migrations.
-- **Visual Verification**: Custom headless Chrome rasterizer (`scripts/tui-screen.sh`) driving visual QA inspections in persistent tmux sessions.
+- **TUI & Styling**: [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), [Glamour](https://github.com/charmbracelet/glamour).
+- **SSH**: [Charm Wish](https://github.com/charmbracelet/wish) with public key authentication.
+- **Database**: PostgreSQL 16 with [sqlc](https://sqlc.dev/) for compile-time safe queries and [Goose](https://github.com/pressly/goose) for schema migrations.
 
 ---
 
-## Testing & Quality Assurance
+## Testing & Quality
 
-Run the automated Go test suite:
+Run the automated test suite:
 ```bash
 go test -v ./...
 ```
@@ -211,18 +233,6 @@ Capture a high-resolution PNG screenshot of an active tmux session:
 ```bash
 make tui-screen TARGET=dev OUT=assets/screen.png
 ```
-
----
-
-## Engineering Ensemble Directives
-
-This project is developed under an ensemble of specialized workspace autonomous agents governed by [`AGENTS.md`](AGENTS.md):
-- **`pessimistic-lead`**: Tech & Security Lead guarding against terminal escape injection, DoS vectors, and query bounds.
-- **`tui-ux-engineer`**: TUI Creative Engineer maintaining design tokens, visual hierarchy, and responsive layouts.
-- **`tui-qa-tester`**: Quality Assurance Engineer driving autonomous tmux navigation and multimodal visual inspection.
-- **`git-expert`**: Git & Release Engineer enforcing staging hygiene and Conventional Commits.
-- **`backend-db-auditor`**: Database & Backend Integrity Auditor inspecting schema consistency, transactional boundaries, query efficiency, and security vulnerabilities.
-- **`innovation-council-lead`**: Innovation Council & Ideation Orchestrator driving 4-agent problem-solving tournaments and decision memos.
 
 ---
 

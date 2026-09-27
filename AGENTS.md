@@ -98,12 +98,13 @@ This workspace operates under a collaborative ensemble of specialized autonomous
 
 ### Important Operating Policies for `tui-qa-tester`:
 1. **Explicit Invocation Only**: Do **NOT** invoke `tui-qa-tester` automatically after routine UI changes, code edits, or builds. Invoke `tui-qa-tester` **ONLY** when the user explicitly requests visual verification, UI testing, or screenshot runs.
+2. **Preserve Window Dimensions (Strict - No Resizing)**: Do **NOT** run `tmux resize-window` or change the user's window dimensions. Always test against and preserve the user's existing terminal size as-is. ReadIT's TUI is responsive and adapts dynamically.
 
 ```json
 {
   "TypeName": "tui-qa-tester",
   "Role": "TUI Quality Assurance & Visual Verification Engineer",
-  "Prompt": "Set tmux window, navigate through the board list, enter /b/general, upvote the top post, open reply dialog, capture visual PNG frames at each step, and verify layout integrity."
+  "Prompt": "Navigate through the board list in the active session, enter /b/general, upvote the top post, open reply dialog, capture visual PNG frames at each step, and verify layout integrity."
 }
 ```
 
