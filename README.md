@@ -229,13 +229,3 @@ Run the automated test suite:
 go test -v ./...
 ```
 
-Capture a high-resolution PNG screenshot of an active tmux session:
-```bash
-make tui-screen TARGET=dev OUT=assets/screen.png
-```
-
----
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
