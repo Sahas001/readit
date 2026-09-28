@@ -43,3 +43,6 @@ Thumbs.db
 internal/tui/animation_data.txt
 
 AGENTS.md
+
+# Agent directives (local AI workflow config)
+AGENTS.md
