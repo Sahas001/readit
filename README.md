@@ -1,24 +1,5 @@
 # ReadIT
 
-<div align="center">
-
-```text
- ____                _ ___ _____
-|  _ \ ___  __ _  __| |_ _|_   _|
-| |_) / _ \/ _` |/ _` || |  | |
-|  _ <  __/ (_| | (_| || |  | |
-|_| \_\___|\__,_|\__,_|___| |_|
-```
-
-**A simple, Reddit-style discussion forum you access over SSH.**
-
-[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![TUI Framework](https://img.shields.io/badge/TUI-Bubble%20Tea%20%26%20Lip%20Gloss-FF4500?style=flat)](https://github.com/charmbracelet/bubbletea)
-[![SSH Server](https://img.shields.io/badge/SSH-Charm%20Wish-00D1B2?style=flat)](https://github.com/charmbracelet/wish)
-[![Database](https://img.shields.io/badge/Database-PostgreSQL-336791?style=flat&logo=postgresql)](https://sqlc.dev/)
-
-</div>
-
 ---
 
 ## What is ReadIT?
