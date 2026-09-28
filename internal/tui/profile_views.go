@@ -10,13 +10,14 @@ import (
 
 // viewProfile renders the user profile and activity card.
 func (m *Model) viewProfile() string {
+	m.ensureStyles()
 	_, _, contentWidth, contentHeight := m.shellDimensions()
 
 	var f strings.Builder
 
 	if m.profileUser == nil {
-		f.WriteString("\n" + styleSubtitle.Render("User not found.") + "\n\nPress [esc] to return.")
-		card := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Render(f.String())
+		f.WriteString("\n" + m.styles.Subtitle.Render("User not found.") + "\n\nPress [esc] to return.")
+		card := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(m.theme.Border).Padding(1, 2).Render(f.String())
 		return m.renderAppShell("Profile", lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, card), [][2]string{{"esc", "return"}})
 	}
 
@@ -27,23 +28,23 @@ func (m *Model) viewProfile() string {
 	totalKarma := postKarma + commKarma
 
 	// 1. Profile Header Box: Handle, Karma Badges, Join Date
-	titleLine := lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("@"+handle) +
-		"  " + styleMeta.Render("•") + "  " +
-		lipgloss.NewStyle().Foreground(currentTheme.Upvote).Bold(true).Render(fmt.Sprintf("▲ %d karma", totalKarma)) +
-		"  " + styleMeta.Render(fmt.Sprintf("(%d post · %d comment)", postKarma, commKarma))
+	titleLine := lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render("@"+handle) +
+		"  " + m.styles.Meta.Render("•") + "  " +
+		lipgloss.NewStyle().Foreground(m.theme.Upvote).Bold(true).Render(fmt.Sprintf("▲ %d karma", totalKarma)) +
+		"  " + m.styles.Meta.Render(fmt.Sprintf("(%d post · %d comment)", postKarma, commKarma))
 
 	joinDate := u.CreatedAt.Time.Format("Jan 02, 2006")
-	metaLine := styleMeta.Render("Member since " + joinDate)
+	metaLine := m.styles.Meta.Render("Member since " + joinDate)
 
 	f.WriteString(titleLine + "\n")
 	f.WriteString(metaLine + "\n")
 
 	if u.Bio != "" {
-		bioLine := lipgloss.NewStyle().Foreground(currentTheme.Text).Italic(true).Render(truncateRunes(sanitize.SingleLine(u.Bio), 80))
+		bioLine := lipgloss.NewStyle().Foreground(m.theme.Text).Italic(true).Render(truncateRunes(sanitize.SingleLine(u.Bio), 80))
 		f.WriteString(bioLine + "\n")
 	}
 
-	f.WriteString(styleRule.Render(strings.Repeat("─", min(contentWidth-8, 70))) + "\n\n")
+	f.WriteString(m.styles.Rule.Render(strings.Repeat("─", min(contentWidth-8, 70))) + "\n\n")
 
 	// 2. Tab Bar: [ Submissions (N) ]   [ Comments (M) ]
 	subCount := len(m.profilePosts)
@@ -51,11 +52,11 @@ func (m *Model) viewProfile() string {
 
 	var subTabStyle, commTabStyle lipgloss.Style
 	if m.profileTab == 0 {
-		subTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(currentTheme.Primary).Bold(true).Padding(0, 1)
-		commTabStyle = lipgloss.NewStyle().Foreground(currentTheme.TextDim).Padding(0, 1)
+		subTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(m.theme.Primary).Bold(true).Padding(0, 1)
+		commTabStyle = lipgloss.NewStyle().Foreground(m.theme.TextDim).Padding(0, 1)
 	} else {
-		subTabStyle = lipgloss.NewStyle().Foreground(currentTheme.TextDim).Padding(0, 1)
-		commTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(currentTheme.Primary).Bold(true).Padding(0, 1)
+		subTabStyle = lipgloss.NewStyle().Foreground(m.theme.TextDim).Padding(0, 1)
+		commTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(m.theme.Primary).Bold(true).Padding(0, 1)
 	}
 
 	tabBar := fmt.Sprintf("%s   %s",
@@ -70,7 +71,7 @@ func (m *Model) viewProfile() string {
 	if m.profileTab == 0 {
 		// Submissions Tab
 		if subCount == 0 {
-			f.WriteString(styleSubtitle.Render("No submissions yet.") + "\n")
+			f.WriteString(m.styles.Subtitle.Render("No submissions yet.") + "\n")
 		} else {
 			startIdx := 0
 			if m.profilePostCursor >= availLines {
@@ -84,19 +85,19 @@ func (m *Model) viewProfile() string {
 
 				cursor := "  "
 				if isSelected {
-					cursor = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("▌ ")
+					cursor = lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render("▌ ")
 				}
 
 				scoreStr := fmt.Sprintf("▲ %-3d", p.Score)
-				scoreRendered := lipgloss.NewStyle().Foreground(currentTheme.Upvote).Render(scoreStr)
+				scoreRendered := lipgloss.NewStyle().Foreground(m.theme.Upvote).Render(scoreStr)
 				if p.Score < 0 {
-					scoreRendered = lipgloss.NewStyle().Foreground(currentTheme.Downvote).Render(fmt.Sprintf("▼ %-3d", p.Score))
+					scoreRendered = lipgloss.NewStyle().Foreground(m.theme.Downvote).Render(fmt.Sprintf("▼ %-3d", p.Score))
 				}
 
 				title := truncateRunes(sanitize.SingleLine(p.Title), 42)
-				titleRendered := lipgloss.NewStyle().Foreground(currentTheme.Text).Bold(isSelected).Render(title)
+				titleRendered := lipgloss.NewStyle().Foreground(m.theme.Text).Bold(isSelected).Render(title)
 
-				meta := styleMeta.Render(fmt.Sprintf("/b/%s · %d comments · %s", p.BoardSlug, p.CommentCount, timeAgo(p.CreatedAt.Time)))
+				meta := m.styles.Meta.Render(fmt.Sprintf("/b/%s · %d comments · %s", p.BoardSlug, p.CommentCount, timeAgo(p.CreatedAt.Time)))
 
 				f.WriteString(fmt.Sprintf("%s%s %s  %s\n", cursor, scoreRendered, titleRendered, meta))
 			}
@@ -104,7 +105,7 @@ func (m *Model) viewProfile() string {
 	} else {
 		// Comments Tab
 		if commCount == 0 {
-			f.WriteString(styleSubtitle.Render("No comments yet.") + "\n")
+			f.WriteString(m.styles.Subtitle.Render("No comments yet.") + "\n")
 		} else {
 			startIdx := 0
 			if m.profileCommCursor >= availLines {
@@ -118,19 +119,19 @@ func (m *Model) viewProfile() string {
 
 				cursor := "  "
 				if isSelected {
-					cursor = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("▌ ")
+					cursor = lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render("▌ ")
 				}
 
 				scoreStr := fmt.Sprintf("▲ %-3d", c.Score)
-				scoreRendered := lipgloss.NewStyle().Foreground(currentTheme.Upvote).Render(scoreStr)
+				scoreRendered := lipgloss.NewStyle().Foreground(m.theme.Upvote).Render(scoreStr)
 				if c.Score < 0 {
-					scoreRendered = lipgloss.NewStyle().Foreground(currentTheme.Downvote).Render(fmt.Sprintf("▼ %-3d", c.Score))
+					scoreRendered = lipgloss.NewStyle().Foreground(m.theme.Downvote).Render(fmt.Sprintf("▼ %-3d", c.Score))
 				}
 
 				snippet := truncateRunes(sanitize.SingleLine(c.Body), 38)
-				snippetRendered := lipgloss.NewStyle().Foreground(currentTheme.Text).Bold(isSelected).Render(snippet)
+				snippetRendered := lipgloss.NewStyle().Foreground(m.theme.Text).Bold(isSelected).Render(snippet)
 
-				postContext := styleMeta.Render(fmt.Sprintf("in %s (/b/%s)", truncateRunes(sanitize.SingleLine(c.PostTitle), 22), c.BoardSlug))
+				postContext := m.styles.Meta.Render(fmt.Sprintf("in %s (/b/%s)", truncateRunes(sanitize.SingleLine(c.PostTitle), 22), c.BoardSlug))
 
 				f.WriteString(fmt.Sprintf("%s%s %s  %s\n", cursor, scoreRendered, snippetRendered, postContext))
 			}
@@ -140,7 +141,7 @@ func (m *Model) viewProfile() string {
 	cardWidth := min(96, max(44, contentWidth-4))
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(currentTheme.Border).
+		BorderForeground(m.theme.Border).
 		Padding(1, 2)
 
 	card := cardStyle.Width(cardWidth).Render(f.String())
@@ -149,6 +150,7 @@ func (m *Model) viewProfile() string {
 		{"tab/h/l", "switch tab"},
 		{"j/k", "move"},
 		{"enter", "view discussion"},
+		{"t", "theme"},
 		{"esc", "return"},
 	}
 

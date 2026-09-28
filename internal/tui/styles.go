@@ -2,6 +2,273 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
+// Styles holds all session-scoped Lipgloss styling rules derived from a Theme palette.
+type Styles struct {
+	// Typography and Branding Styles
+	Logo       lipgloss.Style
+	LogoBadge  lipgloss.Style
+	Tagline    lipgloss.Style
+	Title      lipgloss.Style
+	Subtitle   lipgloss.Style
+	Meta       lipgloss.Style
+	MetaAuthor lipgloss.Style
+	Prompt     lipgloss.Style
+	Rule       lipgloss.Style
+
+	// Board and Post List Styles
+	Score             lipgloss.Style
+	VoteNeutral       lipgloss.Style
+	VoteUp            lipgloss.Style
+	VoteDown          lipgloss.Style
+	SelectedItem      lipgloss.Style
+	NormalItem        lipgloss.Style
+	PostTitle         lipgloss.Style
+	PostTitleSelected lipgloss.Style
+	PostCardSelected  lipgloss.Style
+	PostCardNormal    lipgloss.Style
+	LinkBadge         lipgloss.Style
+	SortPill          lipgloss.Style
+	SearchBar         lipgloss.Style
+	SearchBarActive   lipgloss.Style
+	SearchBarFiltered lipgloss.Style
+	FilterPrompt      lipgloss.Style
+	FilterQuery       lipgloss.Style
+	FilterHint        lipgloss.Style
+
+	// Threaded Comment Styles
+	PostBody       lipgloss.Style
+	Branch         lipgloss.Style
+	SelectedBranch lipgloss.Style
+	Author         lipgloss.Style
+	OpBadge        lipgloss.Style
+	Badge          lipgloss.Style
+
+	// Modal Form & Dialog Styles
+	InputFocused lipgloss.Style
+	InputBlurred lipgloss.Style
+	ModalCard    lipgloss.Style
+	CharCount    lipgloss.Style
+
+	// Status & Navigation Bar Styles
+	StatusBar   lipgloss.Style
+	StatusBadge lipgloss.Style
+	StatusKey   lipgloss.Style
+	StatusDesc  lipgloss.Style
+	StatusFlash lipgloss.Style
+	StatusDot   lipgloss.Style
+
+	// Notification, Error, and Empty State Styles
+	Error     lipgloss.Style
+	ErrorCard lipgloss.Style
+	EmptyCard lipgloss.Style
+}
+
+// NewStyles constructs a new Styles bundle parameterized strictly by the given Theme palette.
+func NewStyles(t Theme) Styles {
+	return Styles{
+		Logo: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true),
+
+		LogoBadge: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(t.Primary).
+			Bold(true).
+			Padding(0, 1),
+
+		Tagline: lipgloss.NewStyle().
+			Foreground(t.TextMuted).
+			Italic(true),
+
+		Title: lipgloss.NewStyle().
+			Foreground(t.Text).
+			Bold(true),
+
+		Subtitle: lipgloss.NewStyle().
+			Foreground(t.TextMuted),
+
+		Meta: lipgloss.NewStyle().
+			Foreground(t.TextMuted),
+
+		MetaAuthor: lipgloss.NewStyle().
+			Foreground(t.Text).
+			Bold(true),
+
+		Prompt: lipgloss.NewStyle().
+			Foreground(t.Accent).
+			Bold(true),
+
+		Rule: lipgloss.NewStyle().
+			Foreground(t.Border),
+
+		Score: lipgloss.NewStyle().
+			Foreground(t.Upvote).
+			Bold(true).
+			Width(5).
+			Align(lipgloss.Center),
+
+		VoteNeutral: lipgloss.NewStyle().
+			Foreground(t.TextDim).
+			Bold(true),
+
+		VoteUp: lipgloss.NewStyle().
+			Foreground(t.Upvote).
+			Bold(true),
+
+		VoteDown: lipgloss.NewStyle().
+			Foreground(t.Downvote).
+			Bold(true),
+
+		SelectedItem: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true).
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(t.Primary).
+			PaddingLeft(1),
+
+		NormalItem: lipgloss.NewStyle().
+			Foreground(t.Text).
+			PaddingLeft(2),
+
+		PostTitle: lipgloss.NewStyle().
+			Foreground(t.Text).
+			Bold(true),
+
+		PostTitleSelected: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true),
+
+		PostCardSelected: lipgloss.NewStyle().
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(t.Primary).
+			PaddingLeft(1),
+
+		PostCardNormal: lipgloss.NewStyle().
+			BorderLeft(true).
+			BorderStyle(lipgloss.Border{Left: " "}).
+			PaddingLeft(1),
+
+		LinkBadge: lipgloss.NewStyle().
+			Foreground(t.Accent).
+			Bold(true),
+
+		SortPill: lipgloss.NewStyle().
+			Foreground(t.TextDim).
+			Italic(true),
+
+		SearchBar: lipgloss.NewStyle().
+			Foreground(t.TextMuted),
+
+		SearchBarActive: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true),
+
+		SearchBarFiltered: lipgloss.NewStyle().
+			Foreground(t.Accent).
+			Bold(true),
+
+		FilterPrompt: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true),
+
+		FilterQuery: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true),
+
+		FilterHint: lipgloss.NewStyle().
+			Foreground(t.TextDim),
+
+		PostBody: lipgloss.NewStyle().
+			Foreground(t.Text).
+			Padding(1, 0),
+
+		Branch: lipgloss.NewStyle().
+			Foreground(t.TextDim),
+
+		SelectedBranch: lipgloss.NewStyle().
+			Foreground(t.Primary).
+			Bold(true),
+
+		Author: lipgloss.NewStyle().
+			Foreground(t.Accent).
+			Bold(true),
+
+		OpBadge: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(t.Primary).
+			Padding(0, 1).
+			Bold(true),
+
+		Badge: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(t.Primary).
+			Padding(0, 1).
+			Bold(true),
+
+		InputFocused: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Primary).
+			Padding(0, 1),
+
+		InputBlurred: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Border).
+			Padding(0, 1),
+
+		ModalCard: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Border).
+			Padding(1, 2),
+
+		CharCount: lipgloss.NewStyle().
+			Foreground(t.TextDim),
+
+		StatusBar: lipgloss.NewStyle().
+			Foreground(t.TextMuted),
+
+		StatusBadge: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(t.Primary).
+			Bold(true).
+			Padding(0, 1),
+
+		StatusKey: lipgloss.NewStyle().
+			Foreground(t.Text).
+			Bold(true),
+
+		StatusDesc: lipgloss.NewStyle().
+			Foreground(t.TextMuted),
+
+		StatusFlash: lipgloss.NewStyle().
+			Foreground(t.Upvote).
+			Bold(true),
+
+		StatusDot: lipgloss.NewStyle().
+			Foreground(t.Positive).
+			Bold(true),
+
+		Error: lipgloss.NewStyle().
+			Foreground(t.Negative).
+			Bold(true),
+
+		ErrorCard: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Negative).
+			Padding(1, 2),
+
+		EmptyCard: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Border).
+			Padding(1, 3).
+			Align(lipgloss.Center),
+	}
+}
+
+// Package default styles for fallback and backwards compatibility.
+var defaultStyles = NewStyles(DefaultTheme())
+
 // Convenience color references from currentTheme for backwards compatibility.
 var (
 	colorPrimary   = currentTheme.Primary
@@ -16,219 +283,72 @@ var (
 	colorBorder    = currentTheme.Border
 )
 
-// Typography and Branding Styles
+// Typography and Branding Styles (backwards compatibility).
 var (
-	styleLogo = lipgloss.NewStyle().
-			Foreground(currentTheme.Primary).
-			Bold(true)
-
-	styleLogoBadge = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(currentTheme.Primary).
-			Bold(true).
-			Padding(0, 1)
-
-	styleTagline = lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted).
-			Italic(true)
-
-	styleTitle = lipgloss.NewStyle().
-			Foreground(currentTheme.Text).
-			Bold(true)
-
-	styleSubtitle = lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted)
-
-	styleMeta = lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted)
-
-	styleMetaAuthor = lipgloss.NewStyle().
-			Foreground(currentTheme.Text).
-			Bold(true)
-
-	stylePrompt = lipgloss.NewStyle().
-			Foreground(currentTheme.Accent).
-			Bold(true)
-
-	styleRule = lipgloss.NewStyle().
-			Foreground(currentTheme.Border)
+	styleLogo       = defaultStyles.Logo
+	styleLogoBadge  = defaultStyles.LogoBadge
+	styleTagline    = defaultStyles.Tagline
+	styleTitle      = defaultStyles.Title
+	styleSubtitle   = defaultStyles.Subtitle
+	styleMeta       = defaultStyles.Meta
+	styleMetaAuthor = defaultStyles.MetaAuthor
+	stylePrompt     = defaultStyles.Prompt
+	styleRule       = defaultStyles.Rule
 )
 
-// Board and Post List Styles
+// Board and Post List Styles (backwards compatibility).
 var (
-	styleScore = lipgloss.NewStyle().
-			Foreground(currentTheme.Upvote).
-			Bold(true).
-			Width(5).
-			Align(lipgloss.Center)
-
-	styleVoteNeutral = lipgloss.NewStyle().
-				Foreground(currentTheme.TextDim).
-				Bold(true)
-
-	styleVoteUp = lipgloss.NewStyle().
-			Foreground(currentTheme.Upvote).
-			Bold(true)
-
-	styleVoteDown = lipgloss.NewStyle().
-			Foreground(currentTheme.Downvote).
-			Bold(true)
-
-	styleSelectedItem = lipgloss.NewStyle().
-				Foreground(currentTheme.Primary).
-				Bold(true).
-				BorderLeft(true).
-				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(currentTheme.Primary).
-				PaddingLeft(1)
-
-	styleNormalItem = lipgloss.NewStyle().
-			Foreground(currentTheme.Text).
-			PaddingLeft(2)
-
-	stylePostTitle = lipgloss.NewStyle().
-			Foreground(currentTheme.Text).
-			Bold(true)
-
-	stylePostTitleSelected = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Bold(true)
-
-	stylePostCardSelected = lipgloss.NewStyle().
-				BorderLeft(true).
-				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(currentTheme.Primary).
-				PaddingLeft(1)
-
-	stylePostCardNormal = lipgloss.NewStyle().
-				BorderLeft(true).
-				BorderStyle(lipgloss.Border{Left: " "}).
-				PaddingLeft(1)
-
-	styleLinkBadge = lipgloss.NewStyle().
-			Foreground(currentTheme.Accent).
-			Bold(true)
-
-	styleSortPill = lipgloss.NewStyle().
-			Foreground(currentTheme.TextDim).
-			Italic(true)
-
-	styleSearchBar = lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted)
-
-	styleSearchBarActive = lipgloss.NewStyle().
-			Foreground(currentTheme.Primary).
-			Bold(true)
-
-	styleSearchBarFiltered = lipgloss.NewStyle().
-			Foreground(currentTheme.Accent).
-			Bold(true)
-
-	styleFilterPrompt = lipgloss.NewStyle().
-			Foreground(currentTheme.Primary).
-			Bold(true)
-
-	styleFilterQuery = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true)
-
-	styleFilterHint = lipgloss.NewStyle().
-			Foreground(currentTheme.TextDim)
+	styleScore             = defaultStyles.Score
+	styleVoteNeutral       = defaultStyles.VoteNeutral
+	styleVoteUp            = defaultStyles.VoteUp
+	styleVoteDown          = defaultStyles.VoteDown
+	styleSelectedItem      = defaultStyles.SelectedItem
+	styleNormalItem        = defaultStyles.NormalItem
+	stylePostTitle         = defaultStyles.PostTitle
+	stylePostTitleSelected = defaultStyles.PostTitleSelected
+	stylePostCardSelected  = defaultStyles.PostCardSelected
+	stylePostCardNormal    = defaultStyles.PostCardNormal
+	styleLinkBadge         = defaultStyles.LinkBadge
+	styleSortPill          = defaultStyles.SortPill
+	styleSearchBar         = defaultStyles.SearchBar
+	styleSearchBarActive   = defaultStyles.SearchBarActive
+	styleSearchBarFiltered = defaultStyles.SearchBarFiltered
+	styleFilterPrompt      = defaultStyles.FilterPrompt
+	styleFilterQuery       = defaultStyles.FilterQuery
+	styleFilterHint        = defaultStyles.FilterHint
 )
 
-// Threaded Comment Styles
+// Threaded Comment Styles (backwards compatibility).
 var (
-	stylePostBody = lipgloss.NewStyle().
-			Foreground(currentTheme.Text).
-			Padding(1, 0)
-
-	styleBranch = lipgloss.NewStyle().
-			Foreground(currentTheme.TextDim)
-
-	styleSelectedBranch = lipgloss.NewStyle().
-				Foreground(currentTheme.Primary).
-				Bold(true)
-
-	styleAuthor = lipgloss.NewStyle().
-			Foreground(currentTheme.Accent).
-			Bold(true)
-
-	styleOpBadge = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(currentTheme.Primary).
-			Padding(0, 1).
-			Bold(true)
-
-	styleBadge = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(currentTheme.Primary).
-			Padding(0, 1).
-			Bold(true)
+	stylePostBody       = defaultStyles.PostBody
+	styleBranch         = defaultStyles.Branch
+	styleSelectedBranch = defaultStyles.SelectedBranch
+	styleAuthor         = defaultStyles.Author
+	styleOpBadge        = defaultStyles.OpBadge
+	styleBadge          = defaultStyles.Badge
 )
 
-// Modal Form & Dialog Styles
+// Modal Form & Dialog Styles (backwards compatibility).
 var (
-	styleInputFocused = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(currentTheme.Primary).
-				Padding(0, 1)
-
-	styleInputBlurred = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(currentTheme.Border).
-				Padding(0, 1)
-
-	styleModalCard = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(currentTheme.Border).
-			Padding(1, 2)
-
-	styleCharCount = lipgloss.NewStyle().
-			Foreground(currentTheme.TextDim)
+	styleInputFocused = defaultStyles.InputFocused
+	styleInputBlurred = defaultStyles.InputBlurred
+	styleModalCard    = defaultStyles.ModalCard
+	styleCharCount    = defaultStyles.CharCount
 )
 
-// Status & Navigation Bar Styles
+// Status & Navigation Bar Styles (backwards compatibility).
 var (
-	styleStatusBar = lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted)
-
-	styleStatusBadge = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(currentTheme.Primary).
-				Bold(true).
-				Padding(0, 1)
-
-	styleStatusKey = lipgloss.NewStyle().
-			Foreground(currentTheme.Text).
-			Bold(true)
-
-	styleStatusDesc = lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted)
-
-	styleStatusFlash = lipgloss.NewStyle().
-				Foreground(currentTheme.Upvote).
-				Bold(true)
-
-	styleStatusDot = lipgloss.NewStyle().
-			Foreground(currentTheme.Positive).
-			Bold(true)
+	styleStatusBar   = defaultStyles.StatusBar
+	styleStatusBadge = defaultStyles.StatusBadge
+	styleStatusKey   = defaultStyles.StatusKey
+	styleStatusDesc  = defaultStyles.StatusDesc
+	styleStatusFlash = defaultStyles.StatusFlash
+	styleStatusDot   = defaultStyles.StatusDot
 )
 
-// Notification, Error, and Empty State Styles
+// Notification, Error, and Empty State Styles (backwards compatibility).
 var (
-	styleError = lipgloss.NewStyle().
-			Foreground(currentTheme.Negative).
-			Bold(true)
-
-	styleErrorCard = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(currentTheme.Negative).
-			Padding(1, 2)
-
-	styleEmptyCard = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(currentTheme.Border).
-			Padding(1, 3).
-			Align(lipgloss.Center)
+	styleError     = defaultStyles.Error
+	styleErrorCard = defaultStyles.ErrorCard
+	styleEmptyCard = defaultStyles.EmptyCard
 )
-

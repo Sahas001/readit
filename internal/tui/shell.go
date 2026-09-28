@@ -52,11 +52,12 @@ func (m *Model) shellDimensions() (shellWidth, shellHeight, contentWidth, conten
 // renderAppShell wraps the content with a cohesive header and status bar,
 // and centers the resulting application canvas on the terminal.
 func (m *Model) renderAppShell(contextTitle string, content string, shortcuts [][2]string) string {
+	m.ensureStyles()
 	shellWidth, _, _, contentHeight := m.shellDimensions()
 
 	// 1. Build Header
 	header := m.renderHeader(contextTitle, shellWidth)
-	rule := styleRule.Render(strings.Repeat("─", shellWidth))
+	rule := m.styles.Rule.Render(strings.Repeat("─", shellWidth))
 	topHeader := header + "\n" + rule
 
 	// 2. Build Footer / Status Bar
@@ -100,13 +101,14 @@ func (m *Model) renderAppShell(contextTitle string, content string, shortcuts []
 
 // renderHeader renders the top application title bar.
 func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
-	logo := styleLogoBadge.Render("ReadIT")
+	m.ensureStyles()
+	logo := m.styles.LogoBadge.Render("ReadIT")
 
 	var titlePart string
 	if contextTitle != "" && contextTitle != "ReadIT" {
-		titlePart = styleTitle.Render(contextTitle)
+		titlePart = m.styles.Title.Render(contextTitle)
 	} else {
-		titlePart = styleTagline.Render("The Terminal Forum")
+		titlePart = m.styles.Tagline.Render("The Terminal Forum")
 	}
 
 	left := logo + "  " + titlePart
@@ -118,25 +120,25 @@ func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
 	} else {
 		userHandle = "guest"
 	}
-	dot := styleStatusDot.Render("●")
+	dot := m.styles.StatusDot.Render("●")
 
 	var badge string
 	if m.unreadNotificationCount > 0 {
 		badge = " " + lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(currentTheme.Primary).
+			Background(m.theme.Primary).
 			Bold(true).
 			Render(fmt.Sprintf("[%d]", m.unreadNotificationCount))
 	}
 
-	right := styleMeta.Render("@"+userHandle) + badge + " " + dot
+	right := m.styles.Meta.Render("@"+userHandle) + badge + " " + dot
 
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)
 
 	if targetWidth < leftW+rightW+4 {
 		// Truncate or simplify on narrow widths
-		right = styleMeta.Render("@" + userHandle)
+		right = m.styles.Meta.Render("@" + userHandle)
 		rightW = lipgloss.Width(right)
 		if targetWidth < leftW+rightW+2 {
 			return left
@@ -149,6 +151,7 @@ func (m *Model) renderHeader(contextTitle string, targetWidth int) string {
 
 // renderFooter renders the bottom status bar with centered navigation pills and notices.
 func (m *Model) renderFooter(_ string, shortcuts [][2]string, targetWidth int) string {
+	m.ensureStyles()
 	if targetWidth <= 0 {
 		return ""
 	}
@@ -156,19 +159,19 @@ func (m *Model) renderFooter(_ string, shortcuts [][2]string, targetWidth int) s
 	// Center: key shortcuts or flash notice
 	var centerStr string
 	if m.flashMsg != "" {
-		centerStr = styleStatusFlash.Render(m.flashMsg)
+		centerStr = m.styles.StatusFlash.Render(m.flashMsg)
 		if lipgloss.Width(centerStr) > targetWidth {
 			centerStr = lipgloss.NewStyle().MaxWidth(targetWidth).Render(centerStr)
 		}
 	} else {
-		centerStr = formatAdaptiveKeyPills(shortcuts, targetWidth)
+		centerStr = m.formatAdaptiveKeyPills(shortcuts, targetWidth)
 	}
 
 	return lipgloss.PlaceHorizontal(targetWidth, lipgloss.Center, centerStr)
 }
 
 // formatAdaptiveKeyPills renders key shortcut pills that fit within maxAllowedWidth
-// without ever clipping or truncating a pill mid-text (preventing issues like "[q] qu").
+// using default styles (for package-level utility and standalone testing).
 func formatAdaptiveKeyPills(shortcuts [][2]string, maxAllowedWidth int) string {
 	if len(shortcuts) == 0 || maxAllowedWidth <= 0 {
 		return ""
@@ -208,7 +211,6 @@ func formatAdaptiveKeyPills(shortcuts [][2]string, maxAllowedWidth int) string {
 	// Stage C: Iteratively drop middle items, preserving the final action (e.g. [q] quit)
 	curr := filteredB
 	for len(curr) > 2 {
-		// Drop the item right before the last one (keep first and last)
 		dropIdx := len(curr) - 2
 		curr = append(curr[:dropIdx], curr[dropIdx+1:]...)
 		cStr := formatKeyPills(curr)

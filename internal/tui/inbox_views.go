@@ -11,16 +11,17 @@ import (
 
 // viewInbox renders the notifications inbox card.
 func (m *Model) viewInbox() string {
+	m.ensureStyles()
 	_, _, contentWidth, contentHeight := m.shellDimensions()
 
 	var f strings.Builder
 
 	if len(m.notifications) == 0 {
 		f.WriteString("\n")
-		f.WriteString(stylePrompt.Render("No notifications yet.") + "\n\n")
-		f.WriteString(styleSubtitle.Render("When other users reply to your discussions or comments,") + "\n")
-		f.WriteString(styleSubtitle.Render("you'll see them right here in your inbox.") + "\n\n")
-		f.WriteString(styleSubtitle.Render("Press [esc] to return."))
+		f.WriteString(m.styles.Prompt.Render("No notifications yet.") + "\n\n")
+		f.WriteString(m.styles.Subtitle.Render("When other users reply to your discussions or comments,") + "\n")
+		f.WriteString(m.styles.Subtitle.Render("you'll see them right here in your inbox.") + "\n\n")
+		f.WriteString(m.styles.Subtitle.Render("Press [esc] to return."))
 	} else {
 		// Calculate available lines for notifications
 		// Card padding takes 2 lines, header takes 2 lines
@@ -41,19 +42,19 @@ func (m *Model) viewInbox() string {
 			// 1. Read / Unread Indicator
 			var statusIndicator string
 			if !n.IsRead {
-				statusIndicator = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("●")
+				statusIndicator = lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render("●")
 			} else {
-				statusIndicator = lipgloss.NewStyle().Foreground(currentTheme.TextDim).Render("○")
+				statusIndicator = lipgloss.NewStyle().Foreground(m.theme.TextDim).Render("○")
 			}
 
 			// 2. Cursor indicator
 			cursor := "  "
 			if isSelected {
-				cursor = lipgloss.NewStyle().Foreground(currentTheme.Primary).Bold(true).Render("▌ ")
+				cursor = lipgloss.NewStyle().Foreground(m.theme.Primary).Bold(true).Render("▌ ")
 			}
 
 			// 3. Time ago
-			timeStr := styleMeta.Render(timeAgo(n.CreatedAt.Time))
+			timeStr := m.styles.Meta.Render(timeAgo(n.CreatedAt.Time))
 
 			// 4. Action text & Sanitized Actor Handle
 			actor := sanitize.SingleLine(n.ActorHandle)
@@ -64,17 +65,17 @@ func (m *Model) viewInbox() string {
 			headerLine := fmt.Sprintf("%s %s %s @%s %s  %s",
 				cursor,
 				statusIndicator,
-				lipgloss.NewStyle().Foreground(currentTheme.Text).Bold(isSelected).Render(actionText),
-				lipgloss.NewStyle().Foreground(currentTheme.Secondary).Bold(true).Render(actor),
-				styleMeta.Render("in"),
-				lipgloss.NewStyle().Foreground(currentTheme.Text).Bold(isSelected).Render(truncateRunes(sanitize.SingleLine(n.PostTitle), 35)),
+				lipgloss.NewStyle().Foreground(m.theme.Text).Bold(isSelected).Render(actionText),
+				lipgloss.NewStyle().Foreground(m.theme.Secondary).Bold(true).Render(actor),
+				m.styles.Meta.Render("in"),
+				lipgloss.NewStyle().Foreground(m.theme.Text).Bold(isSelected).Render(truncateRunes(sanitize.SingleLine(n.PostTitle), 35)),
 			)
 
 			// 5. Snippet line
 			snippetText := truncateRunes(sanitize.SingleLine(n.CommentSnippet), 60)
 			snippetLine := fmt.Sprintf("      %s %s",
-				styleMeta.Render("›"),
-				lipgloss.NewStyle().Foreground(currentTheme.TextMuted).Italic(true).Render(snippetText),
+				m.styles.Meta.Render("›"),
+				lipgloss.NewStyle().Foreground(m.theme.TextMuted).Italic(true).Render(snippetText),
 			)
 
 			f.WriteString(headerLine + " " + timeStr + "\n")
@@ -88,7 +89,7 @@ func (m *Model) viewInbox() string {
 	cardWidth := min(96, max(40, contentWidth-4))
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(currentTheme.Border).
+		BorderForeground(m.theme.Border).
 		Padding(1, 2)
 
 	card := cardStyle.Width(cardWidth).Render(f.String())
@@ -97,6 +98,7 @@ func (m *Model) viewInbox() string {
 		{"j/k", "move"},
 		{"enter", "jump to thread"},
 		{"a", "mark all read"},
+		{"t", "theme"},
 		{"esc", "return"},
 	}
 

@@ -59,6 +59,7 @@ type Querier interface {
 	UpdateUserBio(ctx context.Context, arg UpdateUserBioParams) (User, error)
 	UpdateUserHandle(ctx context.Context, arg UpdateUserHandleParams) (User, error)
 	UpdateUserLastCommentAt(ctx context.Context, id int64) error
+	UpdateUserTheme(ctx context.Context, arg UpdateUserThemeParams) (User, error)
 	UpsertCommentVote(ctx context.Context, arg UpsertCommentVoteParams) error
 	UpsertPostVote(ctx context.Context, arg UpsertPostVoteParams) error
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (User, error)

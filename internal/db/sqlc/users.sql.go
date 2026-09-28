@@ -42,7 +42,7 @@ func (q *Queries) AdjustUserPostKarma(ctx context.Context, arg AdjustUserPostKar
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
 FROM users
 WHERE id = $1
 `
@@ -60,12 +60,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.PostKarma,
 		&i.CommentKarma,
 		&i.LastCommentAt,
+		&i.Theme,
 	)
 	return i, err
 }
 
 const getUserByPubkey = `-- name: GetUserByPubkey :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
 FROM users
 WHERE pubkey_sha256 = $1
 `
@@ -83,12 +84,13 @@ func (q *Queries) GetUserByPubkey(ctx context.Context, pubkeySha256 string) (Use
 		&i.PostKarma,
 		&i.CommentKarma,
 		&i.LastCommentAt,
+		&i.Theme,
 	)
 	return i, err
 }
 
 const getUserProfileByHandle = `-- name: GetUserProfileByHandle :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
 FROM users
 WHERE handle = $1
 `
@@ -106,6 +108,7 @@ func (q *Queries) GetUserProfileByHandle(ctx context.Context, handle string) (Us
 		&i.PostKarma,
 		&i.CommentKarma,
 		&i.LastCommentAt,
+		&i.Theme,
 	)
 	return i, err
 }
@@ -114,7 +117,7 @@ const updateUserBio = `-- name: UpdateUserBio :one
 UPDATE users
 SET bio = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
 `
 
 type UpdateUserBioParams struct {
@@ -135,6 +138,7 @@ func (q *Queries) UpdateUserBio(ctx context.Context, arg UpdateUserBioParams) (U
 		&i.PostKarma,
 		&i.CommentKarma,
 		&i.LastCommentAt,
+		&i.Theme,
 	)
 	return i, err
 }
@@ -143,7 +147,7 @@ const updateUserHandle = `-- name: UpdateUserHandle :one
 UPDATE users
 SET handle = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
 `
 
 type UpdateUserHandleParams struct {
@@ -164,6 +168,7 @@ func (q *Queries) UpdateUserHandle(ctx context.Context, arg UpdateUserHandlePara
 		&i.PostKarma,
 		&i.CommentKarma,
 		&i.LastCommentAt,
+		&i.Theme,
 	)
 	return i, err
 }
@@ -179,12 +184,42 @@ func (q *Queries) UpdateUserLastCommentAt(ctx context.Context, id int64) error {
 	return err
 }
 
+const updateUserTheme = `-- name: UpdateUserTheme :one
+UPDATE users
+SET theme = $2, updated_at = now()
+WHERE id = $1
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+`
+
+type UpdateUserThemeParams struct {
+	ID    int64  `json:"id"`
+	Theme string `json:"theme"`
+}
+
+func (q *Queries) UpdateUserTheme(ctx context.Context, arg UpdateUserThemeParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserTheme, arg.ID, arg.Theme)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.PubkeySha256,
+		&i.Handle,
+		&i.Bio,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PostKarma,
+		&i.CommentKarma,
+		&i.LastCommentAt,
+		&i.Theme,
+	)
+	return i, err
+}
+
 const upsertUser = `-- name: UpsertUser :one
 INSERT INTO users (pubkey_sha256, handle)
 VALUES ($1, $2)
 ON CONFLICT (pubkey_sha256)
 DO UPDATE SET updated_at = now()
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
 `
 
 type UpsertUserParams struct {
@@ -205,6 +240,7 @@ func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, e
 		&i.PostKarma,
 		&i.CommentKarma,
 		&i.LastCommentAt,
+		&i.Theme,
 	)
 	return i, err
 }

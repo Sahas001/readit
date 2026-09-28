@@ -130,34 +130,45 @@ func topRowToPost(r db.ListPostsByBoardTopRow) PostFeedItem {
 	}
 }
 
-// styleCategoryBadge returns a styled pill badge for a category flair.
+// styleCategoryBadge returns a styled pill badge for a category flair using the default theme.
 func styleCategoryBadge(category string) lipgloss.Style {
+	return styleCategoryBadgeWithTheme(category, DefaultTheme())
+}
+
+// styleCategoryBadgeWithTheme returns a styled pill badge for a category flair with the specified theme.
+func styleCategoryBadgeWithTheme(category string, t Theme) lipgloss.Style {
 	cat := strings.ToLower(strings.TrimSpace(category))
 	switch cat {
 	case "discussion":
 		return lipgloss.NewStyle().
-			Foreground(currentTheme.Secondary).
+			Foreground(t.Secondary).
 			Bold(true)
 	case "question":
 		return lipgloss.NewStyle().
-			Foreground(currentTheme.Accent).
+			Foreground(t.Accent).
 			Bold(true)
 	case "showcase":
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00E676")).
+			Foreground(t.Positive).
 			Bold(true)
 	case "guide":
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#BB86FC")).
+			Foreground(t.Upvote).
 			Bold(true)
 	case "news":
 		return lipgloss.NewStyle().
-			Foreground(currentTheme.Primary).
+			Foreground(t.Primary).
 			Bold(true)
 	default: // general
 		return lipgloss.NewStyle().
-			Foreground(currentTheme.TextMuted)
+			Foreground(t.TextMuted)
 	}
+}
+
+// styleCategoryBadge on Model returns a styled pill badge for a category flair using the Model's active theme.
+func (m *Model) styleCategoryBadge(category string) lipgloss.Style {
+	m.ensureStyles()
+	return styleCategoryBadgeWithTheme(category, m.theme)
 }
 
 // sortCommentTree sorts comments within their respective tree hierarchy levels.

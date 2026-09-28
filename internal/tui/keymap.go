@@ -21,6 +21,7 @@ type KeyMap struct {
 	Delete    key.Binding
 	Submit    key.Binding
 	Help      key.Binding
+	Theme     key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -94,6 +95,9 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("?"),
 			key.WithHelp("?", "help"),
 		),
+		Theme: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "theme"),
+		),
 	}
 }
-

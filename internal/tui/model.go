@@ -37,6 +37,7 @@ const (
 	viewInbox
 	viewProfile
 	viewHelp
+	viewThemePicker
 	viewError
 )
 
@@ -147,6 +148,13 @@ type Model struct {
 	profilePostCursor int
 	profileCommCursor int
 	profileReturnView viewState
+
+	// Themes & Styling.
+	themeID         string
+	theme           Theme
+	styles          Styles
+	themeCursor     int
+	themeReturnView viewState
 }
 
 // --- Messages ----------------------------------------------------------
@@ -319,24 +327,30 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 	searchIn.CharLimit = 64
 	searchIn.Width = 36
 	searchIn.Prompt = "/ filter: "
-	searchIn.PromptStyle = styleFilterPrompt
 
 	vp := viewport.New(80, 20)
 
+	th := DefaultTheme()
+	sty := NewStyles(th)
+	searchIn.PromptStyle = sty.FilterPrompt
+
 	return &Model{
-		ctx:          ctx,
-		pool:         pool,
-		queries:      db.New(pool),
-		logger:       logger,
-		fingerprint:  fingerprint,
-		currentView:  viewLoading,
-		keys:         DefaultKeyMap(),
-		handleInput:  ti,
-		titleInput:   titleIn,
-		urlInput:     urlIn,
-		bodyInput:    bodyA,
-		commentInput: commA,
-		searchInput:  searchIn,
+		ctx:           ctx,
+		pool:          pool,
+		queries:       db.New(pool),
+		logger:        logger,
+		fingerprint:   fingerprint,
+		currentView:   viewLoading,
+		keys:          DefaultKeyMap(),
+		themeID:       th.ID,
+		theme:         th,
+		styles:        sty,
+		handleInput:   ti,
+		titleInput:    titleIn,
+		urlInput:      urlIn,
+		bodyInput:     bodyA,
+		commentInput:  commA,
+		searchInput:   searchIn,
 		viewport:      vp,
 		commentCursor: -1,
 		feedPage:      1,
@@ -582,6 +596,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateProfile(msg)
 	case viewHelp:
 		return m.updateHelp(msg)
+	case viewThemePicker:
+		return m.updateThemePicker(msg)
 	}
 
 	return m, nil
@@ -589,6 +605,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the current view.
 func (m *Model) View() string {
+	m.ensureStyles()
 	switch m.currentView {
 	case viewLoading:
 		return m.viewLoading()
@@ -612,6 +629,8 @@ func (m *Model) View() string {
 		return m.viewProfile()
 	case viewHelp:
 		return m.viewHelp()
+	case viewThemePicker:
+		return m.viewThemePicker()
 	case viewError:
 		return m.viewError()
 	default:
@@ -665,6 +684,9 @@ func (m *Model) handleUserLoaded(msg userLoadedMsg) (*Model, tea.Cmd) {
 		return m, textinput.Blink
 	}
 	m.user = msg.user
+	if m.user != nil && m.user.Theme != "" {
+		m.setTheme(m.user.Theme)
+	}
 	m.currentView = viewBoardList
 	return m, tea.Batch(m.loadBoardsCmd(), m.checkUnreadNotificationsCmd())
 }
@@ -743,6 +765,9 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 		case msg.String() == "?":
 			m.helpReturnView = viewBoardList
 			m.currentView = viewHelp
+			return m, nil
+		case msg.String() == "t":
+			m.openThemePicker(viewBoardList)
 			return m, nil
 		case msg.String() == "i":
 			return m, m.openInboxCmd(viewBoardList)
@@ -1006,6 +1031,9 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 		case msg.String() == "?":
 			m.helpReturnView = viewPostList
 			m.currentView = viewHelp
+			return m, nil
+		case msg.String() == "t":
+			m.openThemePicker(viewPostList)
 			return m, nil
 		case msg.String() == "i":
 			return m, m.openInboxCmd(viewPostList)
@@ -1328,6 +1356,9 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 		case "?":
 			m.helpReturnView = viewPostDetail
 			m.currentView = viewHelp
+			return m, nil
+		case "t":
+			m.openThemePicker(viewPostDetail)
 			return m, nil
 		case "i":
 			return m, m.openInboxCmd(viewPostDetail)
@@ -2077,10 +2108,212 @@ func (m *Model) updateHelp(msg tea.Msg) (*Model, tea.Cmd) {
 				targetView = viewBoardList
 			}
 			m.currentView = targetView
+			if targetView == viewBoardList {
+				return m, m.animTickCmd()
+			}
 			return m, nil
 		}
 	}
 	return m, nil
+}
+
+// --- Theme Picker Modal ------------------------------------------------
+
+func (m *Model) ensureStyles() {
+	if m.theme.ID == "" {
+		m.theme = DefaultTheme()
+		m.themeID = m.theme.ID
+		m.styles = NewStyles(m.theme)
+		m.searchInput.PromptStyle = m.styles.FilterPrompt
+	}
+}
+
+func (m *Model) setTheme(id string) {
+	m.theme = GetTheme(id)
+	m.themeID = m.theme.ID
+	m.styles = NewStyles(m.theme)
+	m.searchInput.PromptStyle = m.styles.FilterPrompt
+	if m.currentPost != nil {
+		m.viewport.SetContent(m.renderPostDetailContent())
+	}
+}
+
+func (m *Model) openThemePicker(returnView viewState) {
+	m.themeReturnView = returnView
+	m.currentView = viewThemePicker
+	m.initThemePicker()
+}
+
+func (m *Model) initThemePicker() {
+	m.ensureStyles()
+	themes := Themes()
+	m.themeCursor = 0
+	for i, t := range themes {
+		if t.ID == m.themeID {
+			m.themeCursor = i
+			break
+		}
+	}
+}
+
+func (m *Model) saveThemeCmd(themeID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.user == nil || m.queries == nil {
+			return nil
+		}
+		baseCtx := m.ctx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(baseCtx, 3*time.Second)
+		defer cancel()
+
+		_, err := m.queries.UpdateUserTheme(ctx, db.UpdateUserThemeParams{
+			ID:    m.user.ID,
+			Theme: themeID,
+		})
+		if err != nil {
+			return errMsg{err: fmt.Errorf("saving theme: %w", err)}
+		}
+		return nil
+	}
+}
+
+func (m *Model) updateThemePicker(msg tea.Msg) (*Model, tea.Cmd) {
+	themes := Themes()
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "q":
+			targetView := m.themeReturnView
+			if targetView == viewLoading || targetView == viewThemePicker || targetView == viewHelp {
+				targetView = viewBoardList
+			}
+			m.currentView = targetView
+			if targetView == viewBoardList {
+				return m, m.animTickCmd()
+			}
+			return m, nil
+		case "j", "down":
+			if len(themes) > 0 {
+				m.themeCursor = (m.themeCursor + 1) % len(themes)
+			}
+			return m, nil
+		case "k", "up":
+			if len(themes) > 0 {
+				m.themeCursor = (m.themeCursor - 1 + len(themes)) % len(themes)
+			}
+			return m, nil
+		case "g", "home":
+			m.themeCursor = 0
+			return m, nil
+		case "G", "end":
+			if len(themes) > 0 {
+				m.themeCursor = len(themes) - 1
+			}
+			return m, nil
+		case "enter":
+			if len(themes) > 0 && m.themeCursor >= 0 && m.themeCursor < len(themes) {
+				selected := themes[m.themeCursor]
+				m.setTheme(selected.ID)
+				targetView := m.themeReturnView
+				if targetView == viewLoading || targetView == viewThemePicker || targetView == viewHelp {
+					targetView = viewBoardList
+				}
+				m.currentView = targetView
+				m.flashMsg = fmt.Sprintf("✓ Theme set to %s", selected.Name)
+				var cmds []tea.Cmd
+				if targetView == viewBoardList {
+					cmds = append(cmds, m.animTickCmd())
+				}
+				if m.user != nil {
+					m.user.Theme = selected.ID
+					cmds = append(cmds, m.saveThemeCmd(selected.ID))
+				}
+				if len(cmds) > 0 {
+					return m, tea.Batch(cmds...)
+				}
+				return m, nil
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) formatKeyPills(pairs [][2]string) string {
+	m.ensureStyles()
+	var parts []string
+	for _, p := range pairs {
+		k := m.styles.StatusKey.Render("[" + p[0] + "]")
+		d := m.styles.StatusDesc.Render(p[1])
+		parts = append(parts, k+" "+d)
+	}
+	return strings.Join(parts, "  ")
+}
+
+func (m *Model) formatAdaptiveKeyPills(shortcuts [][2]string, maxAllowedWidth int) string {
+	if len(shortcuts) == 0 || maxAllowedWidth <= 0 {
+		return ""
+	}
+
+	full := m.formatKeyPills(shortcuts)
+	if lipgloss.Width(full) <= maxAllowedWidth {
+		return full
+	}
+
+	filteredA := make([][2]string, 0, len(shortcuts))
+	for _, s := range shortcuts {
+		if s[0] != "g/G" {
+			filteredA = append(filteredA, s)
+		}
+	}
+	fStrA := m.formatKeyPills(filteredA)
+	if lipgloss.Width(fStrA) <= maxAllowedWidth {
+		return fStrA
+	}
+
+	filteredB := make([][2]string, 0, len(filteredA))
+	for _, s := range filteredA {
+		if s[0] != "u/d" {
+			filteredB = append(filteredB, s)
+		}
+	}
+	fStrB := m.formatKeyPills(filteredB)
+	if lipgloss.Width(fStrB) <= maxAllowedWidth {
+		return fStrB
+	}
+
+	curr := filteredB
+	for len(curr) > 2 {
+		dropIdx := len(curr) - 2
+		curr = append(curr[:dropIdx], curr[dropIdx+1:]...)
+		cStr := m.formatKeyPills(curr)
+		if lipgloss.Width(cStr) <= maxAllowedWidth {
+			return cStr
+		}
+	}
+
+	if len(shortcuts) > 0 {
+		last := m.formatKeyPills([][2]string{shortcuts[len(shortcuts)-1]})
+		if lipgloss.Width(last) <= maxAllowedWidth {
+			return last
+		}
+	}
+
+	return ""
+}
+
+func (m *Model) formatHelpItem(key, desc string, maxW int) string {
+	m.ensureStyles()
+	k := m.styles.StatusKey.Render(fmt.Sprintf("%-10s", key))
+	d := m.styles.StatusDesc.Render(desc)
+	line := k + " " + d
+	if maxW > 0 && lipgloss.Width(line) > maxW {
+		avail := max(5, maxW-lipgloss.Width(k)-1)
+		line = k + " " + lipgloss.NewStyle().MaxWidth(avail).Render(d)
+	}
+	return line
 }
 
 // --- Inbox -------------------------------------------------------------
@@ -2092,6 +2325,9 @@ func (m *Model) updateInbox(msg tea.Msg) (*Model, tea.Cmd) {
 		case "?":
 			m.helpReturnView = viewInbox
 			m.currentView = viewHelp
+			return m, nil
+		case "t":
+			m.openThemePicker(viewInbox)
 			return m, nil
 		case "esc", "q":
 			targetView := m.inboxReturnView
@@ -2158,6 +2394,9 @@ func (m *Model) updateProfile(msg tea.Msg) (*Model, tea.Cmd) {
 		case "?":
 			m.helpReturnView = viewProfile
 			m.currentView = viewHelp
+			return m, nil
+		case "t":
+			m.openThemePicker(viewProfile)
 			return m, nil
 		case "esc", "q":
 			targetView := m.profileReturnView
@@ -2344,5 +2583,3 @@ func (m *Model) openProfileCmd(handle string, returnView viewState) tea.Cmd {
 		}
 	}
 }
-
-
