@@ -78,12 +78,17 @@ func TestStylesDecoupling(t *testing.T) {
 	sDracula := NewStyles(thDracula)
 	sNord := NewStyles(thNord)
 
-	// Distinct themes must produce distinct styles
-	if sReadIT.Logo.GetForeground() == sDracula.Logo.GetForeground() {
-		t.Errorf("expected different logo colors between ReadIT and Dracula")
+	// Distinct themes must produce distinct semantic styles (e.g. Prompt/Selection/Title)
+	if sReadIT.Prompt.GetForeground() == sDracula.Prompt.GetForeground() {
+		t.Errorf("expected different prompt colors between ReadIT and Dracula")
 	}
-	if sNord.Logo.GetForeground() == sDracula.Logo.GetForeground() {
-		t.Errorf("expected different logo colors between Nord and Dracula")
+	if sNord.Prompt.GetForeground() == sDracula.Prompt.GetForeground() {
+		t.Errorf("expected different prompt colors between Nord and Dracula")
+	}
+
+	// Brand logo must remain consistent across all themes
+	if sReadIT.Logo.GetForeground() != sDracula.Logo.GetForeground() {
+		t.Errorf("expected identical ReadIT brand logo color across themes")
 	}
 
 	// Model initialization attaches default theme and styles
@@ -104,8 +109,7 @@ func TestStylesDecoupling(t *testing.T) {
 	if m2.themeID != "readit" {
 		t.Errorf("expected m2.themeID to remain 'readit', got %q", m2.themeID)
 	}
-	if m.styles.Title.GetForeground() == m2.styles.Title.GetForeground() &&
-		m.styles.Logo.GetForeground() == m2.styles.Logo.GetForeground() {
+	if m.styles.Prompt.GetForeground() == m2.styles.Prompt.GetForeground() {
 		t.Errorf("expected m and m2 to have distinct styling after setTheme")
 	}
 }

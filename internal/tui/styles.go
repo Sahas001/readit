@@ -67,12 +67,12 @@ type Styles struct {
 func NewStyles(t Theme) Styles {
 	return Styles{
 		Logo: lipgloss.NewStyle().
-			Foreground(t.Primary).
+			Foreground(lipgloss.Color("#FF4500")).
 			Bold(true),
 
 		LogoBadge: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(t.Primary).
+			Background(lipgloss.Color("#FF4500")).
 			Bold(true).
 			Padding(0, 1),
 

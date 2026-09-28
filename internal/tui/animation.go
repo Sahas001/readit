@@ -29,22 +29,22 @@ type LogoShineStyles struct {
 	Base   lipgloss.Style
 }
 
-func newEarthStyles(t Theme) EarthStyles {
+func newEarthStyles(_ ...Theme) EarthStyles {
 	return EarthStyles{
-		High: lipgloss.NewStyle().Foreground(t.Accent),
-		Mid:  lipgloss.NewStyle().Foreground(t.Primary),
-		Low:  lipgloss.NewStyle().Foreground(t.Secondary),
-		Sea:  lipgloss.NewStyle().Foreground(t.Border),
+		High: styleEarthHigh,
+		Mid:  styleEarthMid,
+		Low:  styleEarthLow,
+		Sea:  styleEarthSea,
 	}
 }
 
-func newLogoShineStyles(t Theme) LogoShineStyles {
+func newLogoShineStyles(_ ...Theme) LogoShineStyles {
 	return LogoShineStyles{
-		Shine0: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true),
-		Shine1: lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
-		Shine2: lipgloss.NewStyle().Foreground(t.Secondary),
-		Shine3: lipgloss.NewStyle().Foreground(t.PrimaryDark),
-		Base:   lipgloss.NewStyle().Foreground(t.Primary),
+		Shine0: styleShine0,
+		Shine1: styleShine1,
+		Shine2: styleShine2,
+		Shine3: styleShine3,
+		Base:   styleShineBase,
 	}
 }
 
