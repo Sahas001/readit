@@ -38,13 +38,61 @@ func newEarthStyles(_ ...Theme) EarthStyles {
 	}
 }
 
-func newLogoShineStyles(_ ...Theme) LogoShineStyles {
-	return LogoShineStyles{
-		Shine0: styleShine0,
-		Shine1: styleShine1,
-		Shine2: styleShine2,
-		Shine3: styleShine3,
-		Base:   styleShineBase,
+func newLogoShineStyles(t ...Theme) LogoShineStyles {
+	theme := DefaultTheme()
+	if len(t) > 0 {
+		theme = t[0]
+	}
+
+	switch theme.ID {
+	case "catppuccin":
+		return LogoShineStyles{
+			Shine0: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true), // Pure crystalline highlight
+			Shine1: lipgloss.NewStyle().Foreground(lipgloss.Color("#F5E0DC")).Bold(true), // Warm rosewater
+			Shine2: lipgloss.NewStyle().Foreground(lipgloss.Color("#F5C2E7")),             // Radiant pink
+			Shine3: lipgloss.NewStyle().Foreground(lipgloss.Color("#DDB6F2")),             // Soft lavender
+			Base:   lipgloss.NewStyle().Foreground(theme.Primary),                         // Mauve base (#CBA6F7)
+		}
+	case "nord":
+		return LogoShineStyles{
+			Shine0: lipgloss.NewStyle().Foreground(lipgloss.Color("#ECEFF4")).Bold(true), // Snow storm white highlight
+			Shine1: lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E9F0")).Bold(true), // Diamond ice glow
+			Shine2: lipgloss.NewStyle().Foreground(lipgloss.Color("#8FBCBB")),             // Aurora seafoam teal
+			Shine3: lipgloss.NewStyle().Foreground(lipgloss.Color("#81A1C1")),             // Frost blue
+			Base:   lipgloss.NewStyle().Foreground(theme.Primary),                         // Frost cyan base (#88C0D0)
+		}
+	case "dracula":
+		return LogoShineStyles{
+			Shine0: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true), // Neon white highlight
+			Shine1: lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6")).Bold(true), // Electric Dracula pink
+			Shine2: lipgloss.NewStyle().Foreground(lipgloss.Color("#FF92D0")),             // Luminous neon pink
+			Shine3: lipgloss.NewStyle().Foreground(lipgloss.Color("#D1A8FF")),             // Electric lilac
+			Base:   lipgloss.NewStyle().Foreground(theme.Primary),                         // Dracula purple base (#BD93F9)
+		}
+	case "gruvbox":
+		return LogoShineStyles{
+			Shine0: lipgloss.NewStyle().Foreground(lipgloss.Color("#FBF1C7")).Bold(true), // Ivory highlight
+			Shine1: lipgloss.NewStyle().Foreground(lipgloss.Color("#FABD2F")).Bold(true), // Gruvbox gold yellow
+			Shine2: lipgloss.NewStyle().Foreground(lipgloss.Color("#F2A42B")),             // Warm brass amber
+			Shine3: lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8700")),             // Radiant orange
+			Base:   lipgloss.NewStyle().Foreground(theme.Primary),                         // Gruvbox orange base (#FE8019)
+		}
+	case "tokyonight":
+		return LogoShineStyles{
+			Shine0: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true), // Pure white glare
+			Shine1: lipgloss.NewStyle().Foreground(lipgloss.Color("#7DCFFF")).Bold(true), // Cyberpunk cyan
+			Shine2: lipgloss.NewStyle().Foreground(lipgloss.Color("#89DDFF")),             // Ice electric blue
+			Shine3: lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7")),             // Neon blue
+			Base:   lipgloss.NewStyle().Foreground(theme.Primary),                         // Tokyo blue base (#7AA2F7)
+		}
+	default: // "readit"
+		return LogoShineStyles{
+			Shine0: styleShine0,                                   // Solar gold highlight (#FFF176)
+			Shine1: styleShine1,                                   // Warm lustrous gold (#FFD54F)
+			Shine2: styleShine2,                                   // Golden honey amber (#FFA726)
+			Shine3: styleShine3,                                   // Radiant coral-orange (#FF7043)
+			Base:   lipgloss.NewStyle().Foreground(theme.Primary), // Base Reddit orange (#FF4500)
+		}
 	}
 }
 

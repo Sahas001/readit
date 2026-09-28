@@ -86,9 +86,24 @@ func TestStylesDecoupling(t *testing.T) {
 		t.Errorf("expected different prompt colors between Nord and Dracula")
 	}
 
-	// Brand logo must remain consistent across all themes
-	if sReadIT.Logo.GetForeground() != sDracula.Logo.GetForeground() {
-		t.Errorf("expected identical ReadIT brand logo color across themes")
+	// Logo reflects the active theme's primary color
+	if sReadIT.Logo.GetForeground() == sDracula.Logo.GetForeground() {
+		t.Errorf("expected different logo colors between ReadIT and Dracula")
+	}
+
+	// Earth colors remain constant across all themes
+	eReadIT := newEarthStyles(thReadIT)
+	eDracula := newEarthStyles(thDracula)
+	if eReadIT.High.GetForeground() != eDracula.High.GetForeground() ||
+		eReadIT.Sea.GetForeground() != eDracula.Sea.GetForeground() {
+		t.Errorf("expected revolving Earth colors to remain constant across all themes")
+	}
+
+	// Logo shine has theme-specific complementing colors
+	shReadIT := newLogoShineStyles(thReadIT)
+	shDracula := newLogoShineStyles(thDracula)
+	if shReadIT.Shine1.GetForeground() == shDracula.Shine1.GetForeground() {
+		t.Errorf("expected different complementing shine highlights between ReadIT and Dracula")
 	}
 
 	// Model initialization attaches default theme and styles
