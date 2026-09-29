@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/sahas/readit/internal/sanitize"
 )
 
@@ -66,6 +67,7 @@ func renderMarkdown(content string, width int, t ...Theme) string {
 		glamour.WithWordWrap(width),
 		glamour.WithEmoji(),
 		glamour.WithPreservedNewLines(),
+		glamour.WithColorProfile(termenv.TrueColor),
 	)
 	if err != nil {
 		return lipgloss.NewStyle().Width(width).Render(clean)

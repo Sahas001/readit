@@ -8,12 +8,18 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/sahas/readit/internal/config"
 	"github.com/sahas/readit/internal/db"
 	internalssh "github.com/sahas/readit/internal/ssh"
 )
 
 func main() {
+	// Force 24-bit TrueColor profile so Lip Gloss default renderer outputs ANSI escape codes
+	// even when the server daemon process is started headless under systemd without an interactive TTY.
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
 	if err := run(); err != nil {
 		slog.Error("fatal error", "error", err)
 		os.Exit(1)

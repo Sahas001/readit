@@ -451,3 +451,46 @@ func TestThemePickerNarrowTerminalResponsiveness(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorStylesSyncWithTheme(t *testing.T) {
+	m := NewModel(context.Background(), nil, "test-key", nil)
+
+	// Verify initial default theme cursor style has DefaultTheme().Primary
+	defaultPrimary := DefaultTheme().Primary
+	if fg := m.handleInput.Cursor.Style.GetForeground(); fg != defaultPrimary {
+		t.Errorf("expected handleInput cursor foreground %v, got %v", defaultPrimary, fg)
+	}
+	if fg := m.titleInput.Cursor.Style.GetForeground(); fg != defaultPrimary {
+		t.Errorf("expected titleInput cursor foreground %v, got %v", defaultPrimary, fg)
+	}
+	if fg := m.urlInput.Cursor.Style.GetForeground(); fg != defaultPrimary {
+		t.Errorf("expected urlInput cursor foreground %v, got %v", defaultPrimary, fg)
+	}
+	if fg := m.bodyInput.Cursor.Style.GetForeground(); fg != defaultPrimary {
+		t.Errorf("expected bodyInput cursor foreground %v, got %v", defaultPrimary, fg)
+	}
+	if fg := m.commentInput.Cursor.Style.GetForeground(); fg != defaultPrimary {
+		t.Errorf("expected commentInput cursor foreground %v, got %v", defaultPrimary, fg)
+	}
+	if fg := m.searchInput.Cursor.Style.GetForeground(); fg != defaultPrimary {
+		t.Errorf("expected searchInput cursor foreground %v, got %v", defaultPrimary, fg)
+	}
+
+	// Switch theme to Dracula
+	dracula := GetTheme("dracula")
+	m.setTheme("dracula")
+
+	if fg := m.handleInput.Cursor.Style.GetForeground(); fg != dracula.Primary {
+		t.Errorf("expected handleInput cursor foreground %v after theme switch, got %v", dracula.Primary, fg)
+	}
+	if fg := m.titleInput.Cursor.Style.GetForeground(); fg != dracula.Primary {
+		t.Errorf("expected titleInput cursor foreground %v after theme switch, got %v", dracula.Primary, fg)
+	}
+	if fg := m.commentInput.Cursor.Style.GetForeground(); fg != dracula.Primary {
+		t.Errorf("expected commentInput cursor foreground %v after theme switch, got %v", dracula.Primary, fg)
+	}
+	if fg := m.searchInput.Cursor.Style.GetForeground(); fg != dracula.Primary {
+		t.Errorf("expected searchInput cursor foreground %v after theme switch, got %v", dracula.Primary, fg)
+	}
+}
+

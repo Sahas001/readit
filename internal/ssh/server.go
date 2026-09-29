@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/ssh"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/wish"
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/wish/bubbletea"
 	"github.com/charmbracelet/wish/logging"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/muesli/termenv"
 
 	"github.com/sahas/readit/internal/config"
 	"github.com/sahas/readit/internal/tui"
@@ -20,6 +22,9 @@ import (
 
 // NewServer creates a configured wish SSH server.
 func NewServer(cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger) (*ssh.Server, error) {
+	// Force TrueColor profile on Lip Gloss default renderer so all styling emits 24-bit ANSI colors.
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
 	// teaHandler returns the Bubble Tea model and program options per session.
 	teaHandler := func(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
 		pubKey := sess.PublicKey()
@@ -51,7 +56,7 @@ func NewServer(cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger) (*ss
 			return true
 		}),
 		wish.WithMiddleware(
-			bubbletea.Middleware(teaHandler),
+			bubbletea.MiddlewareWithColorProfile(teaHandler, termenv.TrueColor),
 			activeterm.Middleware(),
 			logging.Middleware(),
 		),

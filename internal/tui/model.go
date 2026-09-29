@@ -334,7 +334,7 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 	sty := NewStyles(th)
 	searchIn.PromptStyle = sty.FilterPrompt
 
-	return &Model{
+	m := &Model{
 		ctx:           ctx,
 		pool:          pool,
 		queries:       db.New(pool),
@@ -356,6 +356,8 @@ func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logge
 		feedPage:      1,
 		readPosts:     make(map[int64]bool),
 	}
+	m.syncCursorStyles()
+	return m
 }
 
 // --- tea.Model interface -----------------------------------------------
@@ -680,8 +682,7 @@ func (m *Model) lookupUserCmd() tea.Cmd {
 func (m *Model) handleUserLoaded(msg userLoadedMsg) (*Model, tea.Cmd) {
 	if msg.isNew {
 		m.currentView = viewOnboarding
-		m.handleInput.Focus()
-		return m, textinput.Blink
+		return m, m.handleInput.Focus()
 	}
 	m.user = msg.user
 	if m.user != nil && m.user.Theme != "" {
@@ -1021,8 +1022,11 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 				m.searchInput, cmd = m.searchInput.Update(msg)
 				return m, cmd
 			}
+		default:
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			return m, cmd
 		}
-		return m, nil
 	}
 
 	switch msg := msg.(type) {
@@ -1044,8 +1048,7 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		case msg.String() == "/":
 			m.searchFocused = true
-			m.searchInput.Focus()
-			return m, textinput.Blink
+			return m, m.searchInput.Focus()
 		case msg.String() == "q":
 			return m, tea.Quit
 		case msg.String() == "esc":
@@ -1722,30 +1725,32 @@ func (m *Model) openNewPost() tea.Cmd {
 	m.urlInput.Reset()
 	m.bodyInput.Reset()
 	m.resizeInputs()
-	m.syncPostFormFocus()
+	cmd := m.syncPostFormFocus()
 	m.err = nil
-	return textinput.Blink
+	return cmd
 }
 
-func (m *Model) syncPostFormFocus() {
+func (m *Model) syncPostFormFocus() tea.Cmd {
 	switch m.postFormFocus {
 	case 0:
-		m.titleInput.Focus()
 		m.urlInput.Blur()
 		m.bodyInput.Blur()
+		return m.titleInput.Focus()
 	case 1:
 		m.titleInput.Blur()
 		m.urlInput.Blur()
 		m.bodyInput.Blur()
+		return nil
 	case 2:
 		m.titleInput.Blur()
-		m.urlInput.Focus()
 		m.bodyInput.Blur()
+		return m.urlInput.Focus()
 	case 3:
 		m.titleInput.Blur()
 		m.urlInput.Blur()
-		m.bodyInput.Focus()
+		return m.bodyInput.Focus()
 	}
+	return nil
 }
 
 func (m *Model) updateNewPost(msg tea.Msg) (*Model, tea.Cmd) {
@@ -1757,25 +1762,20 @@ func (m *Model) updateNewPost(msg tea.Msg) (*Model, tea.Cmd) {
 			return m, nil
 		case msg.String() == "tab":
 			m.postFormFocus = (m.postFormFocus + 1) % 4
-			m.syncPostFormFocus()
-			return m, nil
+			return m, m.syncPostFormFocus()
 		case msg.String() == "shift+tab" || msg.Type == tea.KeyShiftTab:
 			m.postFormFocus = (m.postFormFocus - 1 + 4) % 4
-			m.syncPostFormFocus()
-			return m, nil
+			return m, m.syncPostFormFocus()
 		case msg.String() == "enter":
 			if m.postFormFocus == 0 {
 				m.postFormFocus = 1
-				m.syncPostFormFocus()
-				return m, nil
+				return m, m.syncPostFormFocus()
 			} else if m.postFormFocus == 1 {
 				m.postFormFocus = 2
-				m.syncPostFormFocus()
-				return m, nil
+				return m, m.syncPostFormFocus()
 			} else if m.postFormFocus == 2 {
 				m.postFormFocus = 3
-				m.syncPostFormFocus()
-				return m, nil
+				return m, m.syncPostFormFocus()
 			}
 			// When postFormFocus == 3 (body textarea), enter inserts a newline
 		case msg.String() == "ctrl+s":
@@ -1879,9 +1879,9 @@ func (m *Model) openNewComment(parentID *int64, parentAuthor string) tea.Cmd {
 	m.replyParentAuthor = parentAuthor
 	m.commentInput.Reset()
 	m.resizeInputs()
-	m.commentInput.Focus()
+	cmd := m.commentInput.Focus()
 	m.err = nil
-	return textarea.Blink
+	return cmd
 }
 
 func (m *Model) updateNewComment(msg tea.Msg) (*Model, tea.Cmd) {
@@ -2125,7 +2125,18 @@ func (m *Model) ensureStyles() {
 		m.themeID = m.theme.ID
 		m.styles = NewStyles(m.theme)
 		m.searchInput.PromptStyle = m.styles.FilterPrompt
+		m.syncCursorStyles()
 	}
+}
+
+func (m *Model) syncCursorStyles() {
+	curStyle := lipgloss.NewStyle().Foreground(m.theme.Primary)
+	m.handleInput.Cursor.Style = curStyle
+	m.titleInput.Cursor.Style = curStyle
+	m.urlInput.Cursor.Style = curStyle
+	m.bodyInput.Cursor.Style = curStyle
+	m.commentInput.Cursor.Style = curStyle
+	m.searchInput.Cursor.Style = curStyle
 }
 
 func (m *Model) setTheme(id string) {
@@ -2133,6 +2144,7 @@ func (m *Model) setTheme(id string) {
 	m.themeID = m.theme.ID
 	m.styles = NewStyles(m.theme)
 	m.searchInput.PromptStyle = m.styles.FilterPrompt
+	m.syncCursorStyles()
 	if m.currentPost != nil {
 		m.viewport.SetContent(m.renderPostDetailContent())
 	}
