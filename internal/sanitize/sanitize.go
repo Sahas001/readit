@@ -21,10 +21,30 @@ var ValidHandleRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,20}$`)
 // 4. 2-character Fe escape sequences: ESC followed by single char
 var ansiEscapeRegex = regexp.MustCompile(`\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|P[^\x1b]*\x1b\\|[@-Z\\-_])`)
 
+// reservedHandles contains system and administrative handles that cannot be registered by users.
+var reservedHandles = map[string]bool{
+	"admin":         true,
+	"administrator": true,
+	"system":        true,
+	"root":          true,
+	"readit":        true,
+	"moderator":     true,
+	"mod":           true,
+	"support":       true,
+	"help":          true,
+	"official":      true,
+	"deleted":       true,
+	"null":          true,
+	"undefined":     true,
+	"anonymous":     true,
+	"bot":           true,
+}
+
 // ValidateHandle checks if a handle adheres to security rules:
 // - Length between 3 and 20 characters
 // - Strictly alphanumeric, underscores, or hyphens
 // - Cannot start or end with a hyphen or underscore
+// - Cannot be a reserved administrative handle
 // - Cannot contain profane or prohibited language
 func ValidateHandle(handle string) error {
 	trimmed := strings.TrimSpace(handle)
@@ -36,6 +56,9 @@ func ValidateHandle(handle string) error {
 	}
 	if trimmed[0] == '-' || trimmed[0] == '_' || trimmed[len(trimmed)-1] == '-' || trimmed[len(trimmed)-1] == '_' {
 		return &ValidationError{Msg: "handle cannot start or end with an underscore or hyphen"}
+	}
+	if reservedHandles[strings.ToLower(trimmed)] {
+		return &ValidationError{Msg: "handle is reserved"}
 	}
 	if ContainsProfanity(trimmed) {
 		return &ValidationError{Msg: "handle contains prohibited language"}
@@ -96,20 +119,21 @@ func ValidateCleanContent(field, text string) error {
 	return nil
 }
 
-// Text strips ANSI escape codes and unprintable C0/C1 control characters from user text.
+// Text strips ANSI escape codes, unprintable C0/C1 control characters, and Unicode format codes (Category Cf)
+// such as BiDi directional overrides (e.g. U+202E RLO) and zero-width spaces from user text.
 // Allowed whitespace: standard space, tab (\t), newline (\n), and carriage return (\r).
-// All other control characters (e.g. BEL \x07, ESC \x1b, BS \x08) are stripped.
+// All other control characters (e.g. BEL \x07, ESC \x1b, BS \x08) and formatting overrides are stripped.
 func Text(s string) string {
 	// First pass: remove full multi-byte ANSI/OSC/CSI escape sequences
 	cleaned := ansiEscapeRegex.ReplaceAllString(s, "")
 
-	// Second pass: remove any lingering C0/C1 non-printable control characters
+	// Second pass: remove lingering C0/C1 control characters and Category Cf (BiDi overrides, zero-width chars)
 	var b strings.Builder
 	b.Grow(len(cleaned))
 	for _, r := range cleaned {
 		if r == '\n' || r == '\r' || r == '\t' {
 			b.WriteRune(r)
-		} else if !unicode.IsControl(r) {
+		} else if !unicode.IsControl(r) && !unicode.Is(unicode.Cf, r) {
 			b.WriteRune(r)
 		}
 	}

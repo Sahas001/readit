@@ -95,7 +95,9 @@ WITH RECURSIVE active_ancestors AS (
 DELETE FROM comments
 WHERE comments.post_id = $1
   AND comments.is_deleted = TRUE
-  AND comments.id NOT IN (SELECT parent_id FROM active_ancestors);
+  AND NOT EXISTS (
+      SELECT 1 FROM active_ancestors a WHERE a.parent_id = comments.id
+  );
 
 -- name: ListCommentsByAuthorKeyset :many
 SELECT

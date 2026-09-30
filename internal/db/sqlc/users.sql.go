@@ -42,7 +42,7 @@ func (q *Queries) AdjustUserPostKarma(ctx context.Context, arg AdjustUserPostKar
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 FROM users
 WHERE id = $1
 `
@@ -61,12 +61,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.CommentKarma,
 		&i.LastCommentAt,
 		&i.Theme,
+		&i.LastPostAt,
 	)
 	return i, err
 }
 
 const getUserByPubkey = `-- name: GetUserByPubkey :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 FROM users
 WHERE pubkey_sha256 = $1
 `
@@ -85,12 +86,13 @@ func (q *Queries) GetUserByPubkey(ctx context.Context, pubkeySha256 string) (Use
 		&i.CommentKarma,
 		&i.LastCommentAt,
 		&i.Theme,
+		&i.LastPostAt,
 	)
 	return i, err
 }
 
 const getUserProfileByHandle = `-- name: GetUserProfileByHandle :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 FROM users
 WHERE handle = $1
 `
@@ -109,15 +111,44 @@ func (q *Queries) GetUserProfileByHandle(ctx context.Context, handle string) (Us
 		&i.CommentKarma,
 		&i.LastCommentAt,
 		&i.Theme,
+		&i.LastPostAt,
 	)
 	return i, err
+}
+
+const tryUpdateUserLastCommentAt = `-- name: TryUpdateUserLastCommentAt :execrows
+UPDATE users
+SET last_comment_at = now()
+WHERE id = $1 AND (last_comment_at IS NULL OR last_comment_at <= now() - INTERVAL '3 seconds')
+`
+
+func (q *Queries) TryUpdateUserLastCommentAt(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, tryUpdateUserLastCommentAt, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const tryUpdateUserLastPostAt = `-- name: TryUpdateUserLastPostAt :execrows
+UPDATE users
+SET last_post_at = now()
+WHERE id = $1 AND (last_post_at IS NULL OR last_post_at <= now() - INTERVAL '30 seconds')
+`
+
+func (q *Queries) TryUpdateUserLastPostAt(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, tryUpdateUserLastPostAt, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateUserBio = `-- name: UpdateUserBio :one
 UPDATE users
 SET bio = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 `
 
 type UpdateUserBioParams struct {
@@ -139,6 +170,7 @@ func (q *Queries) UpdateUserBio(ctx context.Context, arg UpdateUserBioParams) (U
 		&i.CommentKarma,
 		&i.LastCommentAt,
 		&i.Theme,
+		&i.LastPostAt,
 	)
 	return i, err
 }
@@ -147,7 +179,7 @@ const updateUserHandle = `-- name: UpdateUserHandle :one
 UPDATE users
 SET handle = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 `
 
 type UpdateUserHandleParams struct {
@@ -169,6 +201,7 @@ func (q *Queries) UpdateUserHandle(ctx context.Context, arg UpdateUserHandlePara
 		&i.CommentKarma,
 		&i.LastCommentAt,
 		&i.Theme,
+		&i.LastPostAt,
 	)
 	return i, err
 }
@@ -188,7 +221,7 @@ const updateUserTheme = `-- name: UpdateUserTheme :one
 UPDATE users
 SET theme = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 `
 
 type UpdateUserThemeParams struct {
@@ -210,6 +243,7 @@ func (q *Queries) UpdateUserTheme(ctx context.Context, arg UpdateUserThemeParams
 		&i.CommentKarma,
 		&i.LastCommentAt,
 		&i.Theme,
+		&i.LastPostAt,
 	)
 	return i, err
 }
@@ -219,7 +253,7 @@ INSERT INTO users (pubkey_sha256, handle)
 VALUES ($1, $2)
 ON CONFLICT (pubkey_sha256)
 DO UPDATE SET updated_at = now()
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 `
 
 type UpsertUserParams struct {
@@ -241,6 +275,7 @@ func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, e
 		&i.CommentKarma,
 		&i.LastCommentAt,
 		&i.Theme,
+		&i.LastPostAt,
 	)
 	return i, err
 }

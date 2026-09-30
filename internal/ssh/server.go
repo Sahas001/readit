@@ -2,21 +2,25 @@ package ssh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/ssh"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/wish"
 	"github.com/charmbracelet/wish/activeterm"
 	"github.com/charmbracelet/wish/bubbletea"
 	"github.com/charmbracelet/wish/logging"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/muesli/termenv"
+	"golang.org/x/net/netutil"
 
 	"github.com/sahas/readit/internal/config"
+	"github.com/sahas/readit/internal/sanitize"
 	"github.com/sahas/readit/internal/tui"
 )
 
@@ -34,8 +38,13 @@ func NewServer(cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger) (*ss
 		}
 		fingerprint := Fingerprint(pubKey)
 
+		sanitizedUser := sanitize.SingleLine(sess.User())
+		if sanitizedUser == "" {
+			sanitizedUser = "anonymous"
+		}
+
 		logger.Info("new session",
-			"user", sess.User(),
+			"user", sanitizedUser,
 			"remote", sess.RemoteAddr().String(),
 			"fingerprint", fingerprint,
 		)
@@ -68,13 +77,25 @@ func NewServer(cfg *config.Config, pool *pgxpool.Pool, logger *slog.Logger) (*ss
 	return srv, nil
 }
 
-// ListenAndServe starts the SSH server and blocks until the context is cancelled.
+// ListenAndServe starts the SSH server with a connection-limiting listener (max 100 concurrent connections)
+// and blocks until the context is cancelled.
 func ListenAndServe(ctx context.Context, srv *ssh.Server, logger *slog.Logger) error {
+	l, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return fmt.Errorf("binding SSH listener: %w", err)
+	}
+	defer l.Close()
+
+	// Bound concurrent TCP connections to 100 to prevent pre-auth file descriptor and socket buffer exhaustion
+	limitedListener := netutil.LimitListener(l, 100)
+
 	errCh := make(chan error, 1)
 
 	go func() {
-		logger.Info("SSH server listening", "addr", srv.Addr)
-		errCh <- srv.ListenAndServe()
+		logger.Info("SSH server listening", "addr", srv.Addr, "max_conns", 100)
+		if err := srv.Serve(limitedListener); err != nil && !errors.Is(err, ssh.ErrServerClosed) {
+			errCh <- err
+		}
 	}()
 
 	select {

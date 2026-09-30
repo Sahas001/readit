@@ -25,6 +25,13 @@ func TestValidateHandle(t *testing.T) {
 		{"bad\x1b[31mcolor", false},           // contains ANSI
 		{"user@domain", false},                // invalid char
 		{"user!admin", false},                 // invalid char
+		{"admin", false},                      // reserved handle
+		{"ADMIN", false},                      // reserved handle case-insensitive
+		{"system", false},                     // reserved handle
+		{"root", false},                       // reserved handle
+		{"readit", false},                     // reserved handle
+		{"moderator", false},                  // reserved handle
+		{"support", false},                    // reserved handle
 	}
 
 	for _, tt := range tests {
@@ -70,6 +77,21 @@ func TestTextSanitizer(t *testing.T) {
 			name:     "Preserves legitimate formatting newlines and tabs",
 			input:    "Line 1\nLine 2\tTabbed",
 			expected: "Line 1\nLine 2\tTabbed",
+		},
+		{
+			name:     "Unicode BiDi Right-to-Left Override (RLO U+202E)",
+			input:    "Normal text \u202Ereversed spoof text",
+			expected: "Normal text reversed spoof text",
+		},
+		{
+			name:     "Unicode BiDi Left-to-Right Override (LRO U+202D)",
+			input:    "Normal text \u202Doverride text",
+			expected: "Normal text override text",
+		},
+		{
+			name:     "Unicode Zero-Width Space (ZWSP U+200B) and BOM (U+FEFF)",
+			input:    "Zero\u200BWidth\uFEFFSpace",
+			expected: "ZeroWidthSpace",
 		},
 	}
 

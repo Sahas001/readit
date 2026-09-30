@@ -217,6 +217,7 @@ func sortCommentTree(comments []db.GetCommentThreadByPostRow, mode CommentSortMo
 
 	// 3. Reconstruct depth-first flattened tree
 	result := make([]db.GetCommentThreadByPostRow, 0, len(comments))
+	visited := make(map[int64]bool, len(comments))
 	var traverse func(parentID int64, depth int32)
 	traverse = func(parentID int64, depth int32) {
 		var list []db.GetCommentThreadByPostRow
@@ -227,6 +228,10 @@ func sortCommentTree(comments []db.GetCommentThreadByPostRow, mode CommentSortMo
 		}
 
 		for _, item := range list {
+			if visited[item.ID] {
+				continue
+			}
+			visited[item.ID] = true
 			item.Depth = depth
 			result = append(result, item)
 			traverse(item.ID, depth+1)

@@ -1,5 +1,5 @@
 -- name: GetUserByPubkey :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 FROM users
 WHERE pubkey_sha256 = $1;
 
@@ -8,27 +8,27 @@ INSERT INTO users (pubkey_sha256, handle)
 VALUES ($1, $2)
 ON CONFLICT (pubkey_sha256)
 DO UPDATE SET updated_at = now()
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme;
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at;
 
 -- name: UpdateUserHandle :one
 UPDATE users
 SET handle = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme;
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at;
 
 -- name: UpdateUserBio :one
 UPDATE users
 SET bio = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme;
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at;
 
 -- name: GetUserByID :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 FROM users
 WHERE id = $1;
 
 -- name: GetUserProfileByHandle :one
-SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme
+SELECT id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at
 FROM users
 WHERE handle = $1;
 
@@ -47,8 +47,18 @@ UPDATE users
 SET last_comment_at = now()
 WHERE id = $1;
 
+-- name: TryUpdateUserLastCommentAt :execrows
+UPDATE users
+SET last_comment_at = now()
+WHERE id = $1 AND (last_comment_at IS NULL OR last_comment_at <= now() - INTERVAL '3 seconds');
+
+-- name: TryUpdateUserLastPostAt :execrows
+UPDATE users
+SET last_post_at = now()
+WHERE id = $1 AND (last_post_at IS NULL OR last_post_at <= now() - INTERVAL '30 seconds');
+
 -- name: UpdateUserTheme :one
 UPDATE users
 SET theme = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme;
+RETURNING id, pubkey_sha256, handle, bio, created_at, updated_at, post_karma, comment_karma, last_comment_at, theme, last_post_at;

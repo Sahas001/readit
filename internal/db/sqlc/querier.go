@@ -56,6 +56,8 @@ type Querier interface {
 	RecalculatePostScore(ctx context.Context, postID int64) error
 	SoftDeleteComment(ctx context.Context, arg SoftDeleteCommentParams) error
 	SoftDeletePost(ctx context.Context, arg SoftDeletePostParams) error
+	TryUpdateUserLastCommentAt(ctx context.Context, id int64) (int64, error)
+	TryUpdateUserLastPostAt(ctx context.Context, id int64) (int64, error)
 	UpdateUserBio(ctx context.Context, arg UpdateUserBioParams) (User, error)
 	UpdateUserHandle(ctx context.Context, arg UpdateUserHandleParams) (User, error)
 	UpdateUserLastCommentAt(ctx context.Context, id int64) error

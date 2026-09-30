@@ -188,7 +188,7 @@ FROM posts p
 JOIN users  u ON u.id = p.author_id
 JOIN boards b ON b.id = p.board_id
 WHERE p.author_id = $1
-  AND (p.is_deleted = FALSE OR p.comment_count > 0)
+  AND p.is_deleted = FALSE
   AND (
       sqlc.narg(cursor_created_at)::TIMESTAMPTZ IS NULL
       OR (p.created_at < sqlc.narg(cursor_created_at)::TIMESTAMPTZ)

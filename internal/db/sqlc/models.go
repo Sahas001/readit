@@ -82,4 +82,5 @@ type User struct {
 	CommentKarma  int32              `json:"comment_karma"`
 	LastCommentAt pgtype.Timestamptz `json:"last_comment_at"`
 	Theme         string             `json:"theme"`
+	LastPostAt    pgtype.Timestamptz `json:"last_post_at"`
 }

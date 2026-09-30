@@ -1328,9 +1328,15 @@ func (m *Model) loadPostDetailAndFocusCommentCmd(postID int64, targetCommentID *
 				}
 			}
 			if allTombstones {
-				_ = m.queries.PruneTombstoneComments(ctx, postID)
-				_ = m.queries.RecalculatePostCommentCount(ctx, postID)
-				_ = m.queries.PruneDeletedPostIfEmpty(ctx, postID)
+				_ = m.execTx(ctx, func(q *db.Queries) error {
+					if err := q.PruneTombstoneComments(ctx, postID); err != nil {
+						return err
+					}
+					if err := q.RecalculatePostCommentCount(ctx, postID); err != nil {
+						return err
+					}
+					return q.PruneDeletedPostIfEmpty(ctx, postID)
+				})
 				return postPrunedMsg{postID: postID}
 			}
 		}
@@ -1641,6 +1647,12 @@ func (m *Model) castPostVoteCmd(postID int64, direction int16) tea.Cmd {
 			if err != nil {
 				return fmt.Errorf("fetching post for vote: %w", err)
 			}
+			if post.IsDeleted {
+				return fmt.Errorf("voting is disabled on deleted content")
+			}
+			if post.AuthorID == m.user.ID {
+				return fmt.Errorf("you cannot vote on your own post")
+			}
 
 			existing, err := q.GetPostVoteByUser(ctx, db.GetPostVoteByUserParams{
 				UserID: m.user.ID,
@@ -1710,6 +1722,12 @@ func (m *Model) castCommentVoteCmd(commentID int64, direction int16) tea.Cmd {
 			comment, err := q.GetCommentByID(ctx, commentID)
 			if err != nil {
 				return fmt.Errorf("fetching comment for vote: %w", err)
+			}
+			if comment.IsDeleted {
+				return fmt.Errorf("voting is disabled on deleted content")
+			}
+			if comment.AuthorID == m.user.ID {
+				return fmt.Errorf("you cannot vote on your own comment")
 			}
 
 			existing, err := q.GetCommentVoteByUser(ctx, db.GetCommentVoteByUserParams{
@@ -1903,20 +1921,44 @@ func (m *Model) submitPostCmd(title, body, url string) tea.Cmd {
 			}
 		}
 
+		// Cooldown check (prevent board flooding / post spam)
+		if m.user.LastPostAt.Valid && time.Since(m.user.LastPostAt.Time) < 30*time.Second {
+			remaining := 30*time.Second - time.Since(m.user.LastPostAt.Time)
+			return errMsg{err: fmt.Errorf("please wait %s before posting again", remaining.Round(time.Second))}
+		}
+
 		ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
 		defer cancel()
 
-		post, err := m.queries.CreatePost(ctx, db.CreatePostParams{
-			BoardID:  m.currentBoard.ID,
-			AuthorID: m.user.ID,
-			Title:    sanitize.SingleLine(title),
-			Body:     sanitize.Text(body),
-			Url:      sanitize.SingleLine(url),
-			Category: category,
+		var post db.Post
+		err := m.execTx(ctx, func(q *db.Queries) error {
+			rows, err := q.TryUpdateUserLastPostAt(ctx, m.user.ID)
+			if err != nil {
+				return fmt.Errorf("updating post rate limit: %w", err)
+			}
+			if rows == 0 {
+				return fmt.Errorf("please wait before posting again (cooldown: 30s)")
+			}
+
+			var errCreate error
+			post, errCreate = q.CreatePost(ctx, db.CreatePostParams{
+				BoardID:  m.currentBoard.ID,
+				AuthorID: m.user.ID,
+				Title:    sanitize.SingleLine(title),
+				Body:     sanitize.Text(body),
+				Url:      sanitize.SingleLine(url),
+				Category: category,
+			})
+			if errCreate != nil {
+				return fmt.Errorf("creating post: %w", errCreate)
+			}
+			return nil
 		})
 		if err != nil {
-			return errMsg{err: fmt.Errorf("creating post: %w", err)}
+			return errMsg{err: err}
 		}
+
+		m.user.LastPostAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
 		return postCreatedMsg{post: post}
 	}
 }
@@ -2002,8 +2044,12 @@ func (m *Model) submitCommentCmd(body string) tea.Cmd {
 				return fmt.Errorf("incrementing comment count: %w", err)
 			}
 
-			if err := q.UpdateUserLastCommentAt(ctx, m.user.ID); err != nil {
+			rows, err := q.TryUpdateUserLastCommentAt(ctx, m.user.ID)
+			if err != nil {
 				return fmt.Errorf("updating user last comment time: %w", err)
+			}
+			if rows == 0 {
+				return fmt.Errorf("please wait before commenting again (cooldown: 3s)")
 			}
 
 			// Determine recipient for notification
