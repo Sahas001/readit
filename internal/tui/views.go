@@ -1145,7 +1145,7 @@ func (m *Model) viewThemePicker() string {
 	cardWidth := min(64, max(36, contentWidth-4))
 
 	var b strings.Builder
-	b.WriteString(m.styles.Prompt.Render("🎨 Select Color Theme") + "\n")
+	b.WriteString(m.styles.Prompt.Render("Select Color Theme") + "\n")
 	b.WriteString(m.styles.Subtitle.Render("Personalize your terminal experience. Changes save to your account.") + "\n\n")
 
 	for i, t := range themes {

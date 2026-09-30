@@ -134,6 +134,10 @@ type Model struct {
 	// Deletion confirmation.
 	pendingDelete *deleteTarget
 
+	// Quit confirmation.
+	quitConfirm   bool
+	quitConfirmID int
+
 	// Notifications.
 	unreadNotificationCount int
 	notifications           []db.ListNotificationsKeysetRow
@@ -269,6 +273,11 @@ type postPrunedMsg struct {
 // animTickMsg drives the Earth rotation and logo shine animation on the landing page.
 type animTickMsg struct{}
 
+// quitConfirmTimeoutMsg signals the expiration of the two-step quit confirmation prompt.
+type quitConfirmTimeoutMsg struct {
+	id int
+}
+
 // errMsg wraps an error for the Update loop.
 type errMsg struct{ err error }
 
@@ -279,7 +288,7 @@ func (e errMsg) Error() string { return e.err.Error() }
 // NewModel creates a new root Model for a Bubble Tea session.
 func NewModel(ctx context.Context, pool *pgxpool.Pool, fingerprint string, logger *slog.Logger) *Model {
 	ti := textinput.New()
-	ti.Placeholder = "choose a handle (e.g. satoshi)"
+	ti.Placeholder = "choose a handle (e.g. ram, shyam, etc)"
 	ti.CharLimit = 20
 	ti.Width = 35
 
@@ -386,13 +395,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case quitConfirmTimeoutMsg:
+		if msg.id == m.quitConfirmID && m.quitConfirm {
+			m.quitConfirm = false
+			if m.flashMsg == "• Press 'q' again to exit" {
+				m.flashMsg = ""
+			}
+		}
+		return m, nil
+
 	// Global quit & flash clearing.
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if msg.String() != "u" && msg.String() != "d" {
+		if m.quitConfirm && (msg.String() == "y" || msg.String() == "Y") {
+			return m, tea.Quit
+		}
+		if m.quitConfirm && (msg.String() == "esc" || msg.String() == "n" || msg.String() == "N") {
+			m.quitConfirm = false
+			if m.flashMsg == "• Press 'q' again to exit" {
+				m.flashMsg = ""
+			}
+			return m, nil
+		}
+		if msg.String() != "u" && msg.String() != "d" && msg.String() != "q" {
 			m.flashMsg = ""
+		}
+		if msg.String() != "q" {
+			m.quitConfirm = false
 		}
 
 	// Data messages.
@@ -759,6 +790,25 @@ func (m *Model) animTickCmd() tea.Cmd {
 	})
 }
 
+// handleQuitKey handles exiting with 'q' using two-step confirmation.
+// The first press flashes a confirmation message; a second press confirms exit.
+func (m *Model) handleQuitKey() (*Model, tea.Cmd) {
+	if m.quitConfirm {
+		return m, tea.Quit
+	}
+	m.quitConfirm = true
+	m.quitConfirmID++
+	m.flashMsg = "• Press 'q' again to exit"
+	return m, m.quitConfirmTimeoutCmd(m.quitConfirmID)
+}
+
+// quitConfirmTimeoutCmd returns a command that sends a quitConfirmTimeoutMsg after 3 seconds.
+func (m *Model) quitConfirmTimeoutCmd(id int) tea.Cmd {
+	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+		return quitConfirmTimeoutMsg{id: id}
+	})
+}
+
 func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -778,7 +828,7 @@ func (m *Model) updateBoardList(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 			return m, nil
 		case msg.String() == "q":
-			return m, tea.Quit
+			return m.handleQuitKey()
 		case msg.String() == "k" || msg.String() == "up":
 			if m.boardCursor > 0 {
 				m.boardCursor--
@@ -1050,7 +1100,7 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 			m.searchFocused = true
 			return m, m.searchInput.Focus()
 		case msg.String() == "q":
-			return m, tea.Quit
+			return m.handleQuitKey()
 		case msg.String() == "esc":
 			if m.searchQuery != "" {
 				m.searchQuery = ""
@@ -1389,7 +1439,7 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 			return m, nil
 		case "q":
-			return m, tea.Quit
+			return m.handleQuitKey()
 		case "s":
 			m.commentSortMode = (m.commentSortMode + 1) % 3
 			m.comments = sortCommentTree(m.comments, m.commentSortMode)
