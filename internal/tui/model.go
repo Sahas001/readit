@@ -72,11 +72,12 @@ type Model struct {
 	user        *db.User
 
 	// UI state.
-	currentView    viewState
-	helpReturnView viewState
-	width          int
-	height         int
-	err            error
+	currentView     viewState
+	helpReturnView  viewState
+	errorReturnView viewState
+	width           int
+	height          int
+	err             error
 
 	// Key bindings.
 	keys KeyMap
@@ -282,6 +283,11 @@ type quitConfirmTimeoutMsg struct {
 type errMsg struct{ err error }
 
 func (e errMsg) Error() string { return e.err.Error() }
+
+// voteErrorMsg represents a non-fatal voting rejection (e.g. self-voting or deleted content)
+type voteErrorMsg struct{ err error }
+
+func (e voteErrorMsg) Error() string { return e.err.Error() }
 
 // --- Constructor -------------------------------------------------------
 
@@ -601,7 +607,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.animTickCmd()
 		}
 		return m, nil
+	case voteErrorMsg:
+		m.flashMsg = "• " + msg.err.Error()
+		return m, nil
 	case errMsg:
+		if m.currentView == viewNewPost || m.currentView == viewNewComment {
+			m.err = msg.err
+			return m, nil
+		}
+		if m.currentView != viewError {
+			m.errorReturnView = m.currentView
+		}
 		m.err = msg.err
 		m.currentView = viewError
 		return m, nil
@@ -631,6 +647,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateHelp(msg)
 	case viewThemePicker:
 		return m.updateThemePicker(msg)
+	case viewError:
+		return m.updateError(msg)
 	}
 
 	return m, nil
@@ -1269,6 +1287,10 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 					m.flashMsg = "• Voting is disabled on deleted content"
 					return m, nil
 				}
+				if m.user != nil && post.AuthorID == m.user.ID {
+					m.flashMsg = "• You cannot vote on your own post"
+					return m, nil
+				}
 				return m, m.castPostVoteCmd(post.ID, 1)
 			}
 		case msg.String() == "d":
@@ -1276,6 +1298,10 @@ func (m *Model) updatePostList(msg tea.Msg) (*Model, tea.Cmd) {
 				post := visible[m.postCursor]
 				if post.IsDeleted {
 					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
+				if m.user != nil && post.AuthorID == m.user.ID {
+					m.flashMsg = "• You cannot vote on your own post"
 					return m, nil
 				}
 				return m, m.castPostVoteCmd(post.ID, -1)
@@ -1538,30 +1564,48 @@ func (m *Model) updatePostDetail(msg tea.Msg) (*Model, tea.Cmd) {
 			}
 		case "u":
 			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
-				if m.comments[m.commentCursor].IsDeleted {
+				comm := m.comments[m.commentCursor]
+				if comm.IsDeleted {
 					m.flashMsg = "• Voting is disabled on deleted content"
 					return m, nil
 				}
-				return m, m.castCommentVoteCmd(m.comments[m.commentCursor].ID, 1)
+				if m.user != nil && comm.AuthorID == m.user.ID {
+					m.flashMsg = "• You cannot vote on your own comment"
+					return m, nil
+				}
+				return m, m.castCommentVoteCmd(comm.ID, 1)
 			}
 			if m.currentPost != nil {
 				if m.currentPost.IsDeleted {
 					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
+				if m.user != nil && m.currentPost.AuthorID == m.user.ID {
+					m.flashMsg = "• You cannot vote on your own post"
 					return m, nil
 				}
 				return m, m.castPostVoteCmd(m.currentPost.ID, 1)
 			}
 		case "d":
 			if m.commentCursor >= 0 && m.commentCursor < len(m.comments) {
-				if m.comments[m.commentCursor].IsDeleted {
+				comm := m.comments[m.commentCursor]
+				if comm.IsDeleted {
 					m.flashMsg = "• Voting is disabled on deleted content"
 					return m, nil
 				}
-				return m, m.castCommentVoteCmd(m.comments[m.commentCursor].ID, -1)
+				if m.user != nil && comm.AuthorID == m.user.ID {
+					m.flashMsg = "• You cannot vote on your own comment"
+					return m, nil
+				}
+				return m, m.castCommentVoteCmd(comm.ID, -1)
 			}
 			if m.currentPost != nil {
 				if m.currentPost.IsDeleted {
 					m.flashMsg = "• Voting is disabled on deleted content"
+					return m, nil
+				}
+				if m.user != nil && m.currentPost.AuthorID == m.user.ID {
+					m.flashMsg = "• You cannot vote on your own post"
 					return m, nil
 				}
 				return m, m.castPostVoteCmd(m.currentPost.ID, -1)
@@ -1702,7 +1746,7 @@ func (m *Model) castPostVoteCmd(postID int64, direction int16) tea.Cmd {
 			return nil
 		})
 		if err != nil {
-			return errMsg{err: err}
+			return voteErrorMsg{err: err}
 		}
 
 		return postVotedMsg{postID: postID, direction: newDirection}
@@ -1776,7 +1820,7 @@ func (m *Model) castCommentVoteCmd(commentID int64, direction int16) tea.Cmd {
 			return nil
 		})
 		if err != nil {
-			return errMsg{err: err}
+			return voteErrorMsg{err: err}
 		}
 
 		return commentVotedMsg{commentID: commentID, direction: newDirection}
@@ -2208,6 +2252,34 @@ func (m *Model) updateHelp(msg tea.Msg) (*Model, tea.Cmd) {
 				return m, m.animTickCmd()
 			}
 			return m, nil
+		}
+	}
+	return m, nil
+}
+
+// --- Error View --------------------------------------------------------
+
+func (m *Model) updateError(msg tea.Msg) (*Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc", "enter", "space":
+			targetView := m.errorReturnView
+			if targetView == viewLoading || targetView == viewError || targetView == 0 {
+				if m.currentBoard != nil {
+					targetView = viewPostList
+				} else {
+					targetView = viewBoardList
+				}
+			}
+			m.currentView = targetView
+			m.err = nil
+			if targetView == viewBoardList {
+				return m, m.animTickCmd()
+			}
+			return m, nil
+		case "q":
+			return m, tea.Quit
 		}
 	}
 	return m, nil

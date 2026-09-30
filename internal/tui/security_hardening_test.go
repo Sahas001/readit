@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/sahas/readit/internal/db/sqlc"
 )
@@ -92,5 +93,77 @@ func TestPostCooldownValidation(t *testing.T) {
 	user.LastPostAt = pgtype.Timestamptz{Time: oldPostTime, Valid: true}
 	if m.user.LastPostAt.Valid && time.Since(m.user.LastPostAt.Time) < 30*time.Second {
 		t.Errorf("user should not be in cooldown after 35s")
+	}
+}
+
+// TestErrorViewKeyHandlingEscAndQuit verifies that viewError handles [esc] and [q] keys
+// so users are never trapped on an error screen requiring Ctrl+C.
+func TestErrorViewKeyHandlingEscAndQuit(t *testing.T) {
+	m := &Model{
+		currentView:     viewError,
+		errorReturnView: viewPostList,
+	}
+
+	// 1. Test [esc] returns to errorReturnView
+	updatedM, cmd := m.updateError(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd != nil {
+		t.Errorf("expected nil cmd on esc, got %v", cmd)
+	}
+	if updatedM.currentView != viewPostList {
+		t.Errorf("expected return to viewPostList on esc, got %v", updatedM.currentView)
+	}
+
+	// 2. Test [q] returns tea.Quit
+	m.currentView = viewError
+	updatedM, cmd = m.updateError(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Errorf("expected tea.Quit cmd on q in viewError, got nil")
+	}
+}
+
+// TestSelfVotingRejectionFlashMsg verifies that voting on own content sets flashMsg
+// and does not navigate away to viewError.
+func TestSelfVotingRejectionFlashMsg(t *testing.T) {
+	user := &db.User{
+		ID:     42,
+		Handle: "satoshi",
+	}
+
+	m := &Model{
+		user:        user,
+		currentView: viewPostList,
+		posts: []PostFeedItem{
+			{
+				ID:           101,
+				AuthorID:     42, // same as user.ID (own post)
+				AuthorHandle: "satoshi",
+				Title:        "My Own Post",
+			},
+		},
+		postCursor: 0,
+	}
+
+	// Press 'u' on own post
+	updatedM, cmd := m.updatePostList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	if cmd != nil {
+		t.Errorf("expected nil cmd (no DB query dispatched) when voting on own post, got %v", cmd)
+	}
+	if updatedM.currentView == viewError {
+		t.Errorf("app must not crash into viewError when voting on own post")
+	}
+	if updatedM.flashMsg != "• You cannot vote on your own post" {
+		t.Errorf("expected flash message '• You cannot vote on your own post', got %q", updatedM.flashMsg)
+	}
+
+	// Press 'd' on own post
+	updatedM, cmd = m.updatePostList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if cmd != nil {
+		t.Errorf("expected nil cmd when downvoting own post, got %v", cmd)
+	}
+	if updatedM.currentView == viewError {
+		t.Errorf("app must not crash into viewError when downvoting own post")
+	}
+	if updatedM.flashMsg != "• You cannot vote on your own post" {
+		t.Errorf("expected flash message '• You cannot vote on your own post', got %q", updatedM.flashMsg)
 	}
 }
